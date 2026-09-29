@@ -1,4 +1,4 @@
-// === Конфигурация ===
+// ==================== КОНФИГ ====================
 const WS_URL = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host;
 const MAX_VOICE_SECONDS = 600;
 const MIN_VOICE_SECONDS = 1;
@@ -9,7 +9,7 @@ const USERS = {
   'Катюшка': { peer: 'Тимофей' },
 };
 
-// === Элементы ===
+// ==================== ЭЛЕМЕНТЫ ====================
 const $messages = document.getElementById('messages');
 const $input = document.getElementById('textInput');
 const $btnSend = document.getElementById('btnSend');
@@ -36,7 +36,7 @@ const $circleSend = document.getElementById('circleSend');
 const $recIndicator = document.getElementById('recIndicator');
 const $recTime = document.getElementById('recTime');
 
-// === Состояние ===
+// ==================== СОСТОЯНИЕ ====================
 let ws = null;
 let reconnectTimer = null;
 let myName = '';
@@ -56,11 +56,11 @@ let circleTimerInterval = null;
 
 const renderedMessages = new Map();
 
-// === Ключи для localStorage по пользователю ===
+// ==================== КЛЮЧИ ====================
 function myAvatarKey() { return `avatar_${myName}`; }
 function peerAvatarKey(peer) { return `peer_avatar_${peer}`; }
 
-// === Логин ===
+// ==================== ЛОГИН ====================
 function showLogin() {
   $loginScreen.classList.remove('hidden');
   document.querySelectorAll('.user-btn').forEach(btn => {
@@ -80,7 +80,6 @@ function initChat() {
   $peerStatus.textContent = 'не в сети';
   $peerStatus.className = 'peer-status offline';
 
-  // Своя аватарка в шапке
   const myAv = localStorage.getItem(myAvatarKey());
   if (myAv) {
     const url = `/media/${encodeURIComponent(myAv)}`;
@@ -90,7 +89,6 @@ function initChat() {
     $headerAvatar.classList.remove('loaded');
   }
 
-  // Аватарка собеседника
   updatePeerAvatar();
   connect();
 }
@@ -101,14 +99,11 @@ function updatePeerAvatar() {
   if (key) {
     $peerAvatar.innerHTML = `<img src="/media/${encodeURIComponent(key)}" alt="">`;
   } else {
-    $peerAvatar.innerHTML = `
-      <svg viewBox="0 0 24 24" width="26" height="26" fill="#C9B0A0">
-        <path d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10Zm0 2c-4.42 0-8 2.24-8 5v1h16v-1c0-2.76-3.58-5-8-5Z"/>
-      </svg>`;
+    $peerAvatar.innerHTML = `<svg viewBox="0 0 24 24" width="26" height="26" fill="#C9B0A0"><path d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10Zm0 2c-4.42 0-8 2.24-8 5v1h16v-1c0-2.76-3.58-5-8-5Z"/></svg>`;
   }
 }
 
-// === WebSocket ===
+// ==================== WEBSOCKET ====================
 function connect() {
   ws = new WebSocket(WS_URL);
 
@@ -201,7 +196,7 @@ function handleDelete(msg) {
   }
 }
 
-// === Текст ===
+// ==================== ТЕКСТ ====================
 function sendText() {
   const text = $input.value.trim();
   if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
@@ -223,7 +218,7 @@ function markAllRead() {
   if (ids.length) markRead(ids);
 }
 
-// === Отображение сообщения ===
+// ==================== ОТРИСОВКА ====================
 function renderMessage(msg) {
   if (msg.id && renderedMessages.has(msg.id)) return;
   const isMine = msg.sender === myName;
@@ -236,7 +231,7 @@ function renderMessage(msg) {
   } else if (msg.type === 'voice') {
     wrap.appendChild(buildVoicePlayer(msg, isMine));
   } else if (msg.type === 'video') {
-    wrap.appendChild(buildCirclePlayer(msg, isMine));
+    wrap.appendChild(buildCirclePlayer(msg));
   }
 
   const meta = document.createElement('div');
@@ -269,16 +264,13 @@ function renderMessage(msg) {
   if (msg.id) renderedMessages.set(msg.id, wrap);
 }
 
-// === Плеер ГС с перемоткой ===
+// ==================== ГОЛОСОВОЕ ====================
 function buildVoicePlayer(msg, isMine) {
   const mediaUrl = `/media/${encodeURIComponent(msg.mediaKey)}`;
   const box = document.createElement('div');
   box.className = 'voice-msg';
-  box.innerHTML = `
-    <button class="play-btn">▶</button>
-    <canvas class="wave" width="180" height="28"></canvas>
-    <span class="dur">${formatDuration(msg.duration || 0)}</span>
-  `;
+  box.innerHTML = `<button class="play-btn">▶</button><canvas class="wave" width="180" height="28"></canvas><span class="dur">${formatDuration(msg.duration || 0)}</span>`;
+
   const audio = new Audio(mediaUrl);
   audio.preload = 'metadata';
   const btn = box.querySelector('.play-btn');
@@ -294,8 +286,8 @@ function buildVoicePlayer(msg, isMine) {
   fetch(mediaUrl)
     .then(r => r.arrayBuffer())
     .then(buf => {
-      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      return audioCtx.decodeAudioData(buf);
+      const ac = new (window.AudioContext || window.webkitAudioContext)();
+      return ac.decodeAudioData(buf);
     })
     .then(audioBuffer => {
       peaks = extractPeaks(audioBuffer, 60);
@@ -320,8 +312,8 @@ function buildVoicePlayer(msg, isMine) {
   });
   audio.addEventListener('timeupdate', () => {
     if (!audio.duration || !peaks) return;
-    const progress = audio.currentTime / audio.duration;
-    drawWaveform(ctx, canvas.width, canvas.height, peaks, colorMain, peaks, progress);
+    const p = audio.currentTime / audio.duration;
+    drawWaveform(ctx, canvas.width, canvas.height, peaks, colorMain, peaks, p);
     durEl.textContent = formatDuration(Math.floor(audio.currentTime));
   });
   audio.addEventListener('loadedmetadata', () => {
@@ -332,84 +324,60 @@ function buildVoicePlayer(msg, isMine) {
   return box;
 }
 
-// === Плеер кружка с круговой обводкой ===
-function buildCirclePlayer(msg, isMine) {
+// ==================== КРУЖОК ====================
+function buildCirclePlayer(msg) {
   const box = document.createElement('div');
   box.className = 'circle-msg';
-
   const size = 180;
   const radius = size / 2 - 3;
   const circumference = 2 * Math.PI * radius;
 
   box.innerHTML = `
-    <video src="/media/${encodeURIComponent(msg.mediaKey)}"
-           playsinline muted preload="metadata"></video>
+    <video src="/media/${encodeURIComponent(msg.mediaKey)}" playsinline muted preload="metadata"></video>
     <svg class="circle-ring" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
-      <circle cx="${size/2}" cy="${size/2}" r="${radius}"
-              fill="none" stroke="rgba(255,255,255,0.35)" stroke-width="4"/>
-      <circle class="circle-ring-progress" cx="${size/2}" cy="${size/2}" r="${radius}"
-              fill="none" stroke="#4A90E2" stroke-width="4"
-              stroke-linecap="round"
-              stroke-dasharray="${circumference}"
-              stroke-dashoffset="${circumference}"
-              transform="rotate(-90 ${size/2} ${size/2})"/>
+      <circle cx="${size/2}" cy="${size/2}" r="${radius}" fill="none" stroke="rgba(255,255,255,0.35)" stroke-width="4"/>
+      <circle class="circle-ring-progress" cx="${size/2}" cy="${size/2}" r="${radius}" fill="none" stroke="#4A90E2" stroke-width="4" stroke-linecap="round" stroke-dasharray="${circumference}" stroke-dashoffset="${circumference}" transform="rotate(-90 ${size/2} ${size/2})"/>
     </svg>
   `;
 
   const vid = box.querySelector('video');
   const ring = box.querySelector('.circle-ring-progress');
-  const videoWrap = box;
 
-  // Показать первый кадр
-  vid.addEventListener('loadedmetadata', () => {
-    vid.currentTime = 0.001;
-  });
-
-  // Клик по видео — play/pause
+  vid.addEventListener('loadedmetadata', () => { vid.currentTime = 0.001; });
   vid.addEventListener('click', (e) => {
     e.stopPropagation();
     if (vid.paused) { vid.muted = false; vid.play(); }
     else { vid.pause(); }
   });
 
-  // Клик по кольцу — перемотка
-  videoWrap.addEventListener('click', (e) => {
+  box.addEventListener('click', (e) => {
     if (!vid.duration) return;
     if (e.target === vid || e.target.classList.contains('circle-ring')) {
-      // Определяем угол относительно центра
-      const rect = videoWrap.getBoundingClientRect();
+      const rect = box.getBoundingClientRect();
       const cx = rect.left + rect.width / 2;
       const cy = rect.top + rect.height / 2;
-      const dx = e.clientX - cx;
-      const dy = e.clientY - cy;
-      // Угол в радианах, отсчёт от верхней точки по часовой
-      let angle = Math.atan2(dy, dx) + Math.PI / 2;
+      let angle = Math.atan2(e.clientY - cy, e.clientX - cx) + Math.PI / 2;
       if (angle < 0) angle += 2 * Math.PI;
-      const ratio = angle / (2 * Math.PI);
-      vid.currentTime = ratio * vid.duration;
+      vid.currentTime = (angle / (2 * Math.PI)) * vid.duration;
     }
   });
 
   vid.addEventListener('timeupdate', () => {
     if (!vid.duration) return;
-    const progress = vid.currentTime / vid.duration;
-    ring.style.strokeDashoffset = circumference * (1 - progress);
+    const p = vid.currentTime / vid.duration;
+    ring.style.strokeDashoffset = circumference * (1 - p);
   });
-  vid.addEventListener('ended', () => {
-    ring.style.strokeDashoffset = circumference;
-  });
+  vid.addEventListener('ended', () => { ring.style.strokeDashoffset = circumference; });
 
   return box;
 }
 
-// === Утилиты ===
+// ==================== УТИЛИТЫ ====================
 function pickMimeType(kind) {
-  const candidates = kind === 'video'
+  const c = kind === 'video'
     ? ['video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4']
     : ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'];
-  for (const t of candidates) {
-    if (window.MediaRecorder && MediaRecorder.isTypeSupported(t)) return t;
-  }
+  for (const t of c) if (window.MediaRecorder && MediaRecorder.isTypeSupported(t)) return t;
   return '';
 }
 
@@ -424,7 +392,6 @@ function formatTime(ts) {
   return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
 }
 
-// === Загрузка ===
 function uploadBlobWithProgress(blob, ext, onProgress) {
   return new Promise((resolve, reject) => {
     const key = `media/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
@@ -447,13 +414,7 @@ function uploadBlobWithProgress(blob, ext, onProgress) {
 function showUploadingBubble(label) {
   const wrap = document.createElement('div');
   wrap.className = 'msg mine';
-  wrap.innerHTML = `
-    <div class="upload-progress">
-      <div class="upload-label">${label}</div>
-      <div class="upload-bar"><div class="upload-fill"></div></div>
-      <div class="upload-pct">0%</div>
-    </div>
-  `;
+  wrap.innerHTML = `<div class="upload-progress"><div class="upload-label">${label}</div><div class="upload-bar"><div class="upload-fill"></div></div><div class="upload-pct">0%</div></div>`;
   $messages.appendChild(wrap);
   $messages.scrollTop = $messages.scrollHeight;
   return {
@@ -465,7 +426,7 @@ function showUploadingBubble(label) {
   };
 }
 
-// === ГС ===
+// ==================== ГС ====================
 async function startVoiceRecording() {
   try {
     voiceStream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -473,15 +434,10 @@ async function startVoiceRecording() {
     voiceRecorder = mimeType ? new MediaRecorder(voiceStream, { mimeType }) : new MediaRecorder(voiceStream);
     voiceChunks = [];
 
-    voiceRecorder.ondataavailable = (e) => {
-      if (e.data && e.data.size > 0) voiceChunks.push(e.data);
-    };
+    voiceRecorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) voiceChunks.push(e.data); };
 
     voiceRecorder.onstop = async () => {
-      if (voiceStream) {
-        voiceStream.getTracks().forEach(t => t.stop());
-        voiceStream = null;
-      }
+      if (voiceStream) { voiceStream.getTracks().forEach(t => t.stop()); voiceStream = null; }
       const blob = new Blob(voiceChunks, { type: voiceRecorder.mimeType || 'audio/webm' });
       const duration = Math.round((Date.now() - voiceStartTime) / 1000);
       if (duration < MIN_VOICE_SECONDS) return alert('Минимум 1 сек');
@@ -492,10 +448,7 @@ async function startVoiceRecording() {
       try {
         const key = await uploadBlobWithProgress(blob, ext, (p) => bubble.setProgress(p));
         bubble.remove();
-        ws.send(JSON.stringify({
-          type: 'voice', sender: myName, mediaKey: key,
-          mime: blob.type, duration,
-        }));
+        ws.send(JSON.stringify({ type: 'voice', sender: myName, mediaKey: key, mime: blob.type, duration }));
       } catch (e) {
         bubble.remove();
         alert('Ошибка: ' + e.message);
@@ -527,7 +480,7 @@ function stopVoiceRecording() {
   $btnVoice.classList.remove('rec');
 }
 
-// === Кружок ===
+// ==================== КРУЖОК ЗАПИСЬ ====================
 async function startCircleRecording() {
   try {
     circleStream = await navigator.mediaDevices.getUserMedia({
@@ -543,9 +496,7 @@ async function startCircleRecording() {
       : new MediaRecorder(circleStream);
     circleChunks = [];
 
-    circleRecorder.ondataavailable = (e) => {
-      if (e.data && e.data.size > 0) circleChunks.push(e.data);
-    };
+    circleRecorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) circleChunks.push(e.data); };
 
     circleRecorder.onstop = async () => {
       circleStream.getTracks().forEach(t => t.stop());
@@ -558,10 +509,7 @@ async function startCircleRecording() {
       try {
         const key = await uploadBlobWithProgress(blob, ext, (p) => bubble.setProgress(p));
         bubble.remove();
-        ws.send(JSON.stringify({
-          type: 'video', sender: myName, mediaKey: key,
-          mime: blob.type, duration,
-        }));
+        ws.send(JSON.stringify({ type: 'video', sender: myName, mediaKey: key, mime: blob.type, duration }));
       } catch (e) {
         bubble.remove();
         alert('Ошибка: ' + e.message);
@@ -591,7 +539,7 @@ function stopCircleRecording() {
   clearInterval(circleTimerInterval);
 }
 
-// === Меню сообщения ===
+// ==================== МЕНЮ СООБЩЕНИЯ ====================
 function showMessageMenu(msg, wrap) {
   document.querySelectorAll('.msg-popup').forEach(p => p.remove());
   const popup = document.createElement('div');
@@ -624,7 +572,7 @@ function showMessageMenu(msg, wrap) {
   }, 10);
 }
 
-// === Волна ===
+// ==================== ВОЛНА ====================
 function extractPeaks(audioBuffer, count) {
   const raw = audioBuffer.getChannelData(0);
   const blockSize = Math.floor(raw.length / count);
@@ -654,7 +602,7 @@ function drawWaveform(ctx, w, h, peaks, color, originalPeaks, progress) {
   }
 }
 
-// === Профиль ===
+// ==================== ПРОФИЛЬ ====================
 function openProfile() {
   $profileName.value = myName;
   $profileEmail.value = profile.email;
@@ -692,14 +640,12 @@ async function uploadAvatar(file) {
       body: file,
     });
     if (!res.ok) throw new Error('Upload failed');
-    // Сохраняем в свой ключ
     localStorage.setItem(myAvatarKey(), key);
     const url = `/media/${encodeURIComponent(key)}`;
     $avatarImg.src = url;
     $avatarImg.classList.add('loaded');
     $headerAvatar.src = url;
     $headerAvatar.classList.add('loaded');
-    // Сообщаем всем через presence
     if (ws && ws.readyState === WebSocket.OPEN) sendPresence();
   } catch (e) {
     console.error(e);
@@ -707,7 +653,7 @@ async function uploadAvatar(file) {
   }
 }
 
-// === События ===
+// ==================== СОБЫТИЯ ====================
 $btnSend.addEventListener('click', sendText);
 $input.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendText(); });
 $btnProfile.addEventListener('click', openProfile);
@@ -718,9 +664,7 @@ $avatarInput.addEventListener('change', (e) => {
   if (file) uploadAvatar(file);
   e.target.value = '';
 });
-$profileModal.addEventListener('click', (e) => {
-  if (e.target === $profileModal) closeProfile();
-});
+$profileModal.addEventListener('click', (e) => { if (e.target === $profileModal) closeProfile(); });
 
 $btnVoice.addEventListener('mousedown', (e) => { e.preventDefault(); startVoiceRecording(); });
 $btnVoice.addEventListener('mouseup', stopVoiceRecording);
@@ -740,5 +684,5 @@ $circleCancel.addEventListener('click', () => {
 });
 $circleSend.addEventListener('click', stopCircleRecording);
 
-// === Старт ===
+// ==================== СТАРТ ====================
 showLogin();
