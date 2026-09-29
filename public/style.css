@@ -41,6 +41,12 @@ body { background: #FFF5EE; display: flex; flex-direction: column; height: 100dv
 @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 .msg.mine { align-self: flex-end; background: #4A90E2; color: #fff; border-bottom-right-radius: 4px; }
 .msg.theirs { align-self: flex-start; background: #fff; color: #333; border: 1px solid #F5D0B8; border-bottom-left-radius: 4px; }
+.msg:has(.circle-msg) {
+  background: transparent !important;
+  padding: 0 !important;
+  border: none !important;
+  max-width: none;
+}
 
 /* ===== Мета ===== */
 .meta { display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin-top: 3px; }
@@ -123,3 +129,19 @@ body { background: #FFF5EE; display: flex; flex-direction: column; height: 100dv
 .upload-pct { font-size: 11px; margin-top: 4px; text-align: right; opacity: 0.9; }
 .msg.theirs .upload-bar { background: rgba(0,0,0,0.1); }
 .msg.theirs .upload-fill { background: #4A90E2; }
+
+/* Убираем фон у сообщений-кружков */
+.msg.circle-wrapper {
+  background: transparent !important;
+  padding: 0 !important;
+  border: none !important;
+  max-width: none;
+}
+.msg.circle-wrapper .meta {
+  color: #5A3A2A;
+  margin-top: 6px;
+}
+.msg.circle-wrapper .time { color: #5A3A2A; opacity: 0.7; }
+.msg.circle-wrapper .read-check { color: rgba(90,58,42,0.5); }
+.msg.circle-wrapper .read-check.read { color: #4A90E2; }
+.msg.circle-wrapper .msg-menu { color: rgba(90,58,42,0.5); }

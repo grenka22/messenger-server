@@ -146,6 +146,12 @@ function connect() {
   };
 
   ws.onerror = (err) => console.error('WS error:', err);
+
+  window.addEventListener('beforeunload', () => {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'presence', user: myName, online: false }));
+    }
+  });
 }
 
 function sendPresence() {
@@ -166,7 +172,7 @@ function handlePresence(msg) {
       $peerStatus.textContent = 'в сети';
       $peerStatus.className = 'peer-status online';
     } else {
-      $peerStatus.textContent = 'не в сети';
+      $peerStatus.textContent = formatLastSeen(msg.last_seen);
       $peerStatus.className = 'peer-status offline';
     }
     if (msg.avatar) {
@@ -222,8 +228,9 @@ function markAllRead() {
 function renderMessage(msg) {
   if (msg.id && renderedMessages.has(msg.id)) return;
   const isMine = msg.sender === myName;
+  const isCircle = msg.type === 'video';
   const wrap = document.createElement('div');
-  wrap.className = 'msg ' + (isMine ? 'mine' : 'theirs');
+  wrap.className = 'msg ' + (isMine ? 'mine' : 'theirs') + (isCircle ? ' circle-wrapper' : '');
   if (msg.id) wrap.dataset.id = msg.id;
 
   if (msg.type === 'text') {
@@ -390,6 +397,30 @@ function formatDuration(sec) {
 function formatTime(ts) {
   const d = ts ? new Date(ts) : new Date();
   return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+}
+
+function formatLastSeen(ts) {
+  if (!ts) return 'не в сети';
+  const d = new Date(ts);
+  const now = new Date();
+  const diffMin = Math.floor((now - d) / 60000);
+
+  if (diffMin < 1) return 'был(а) только что';
+  if (diffMin < 60) return `был(а) ${diffMin} мин назад`;
+
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const msgDay = new Date(d); msgDay.setHours(0, 0, 0, 0);
+
+  const time = d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+
+  if (msgDay.getTime() === today.getTime()) return `был(а) в ${time}`;
+
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+  if (msgDay.getTime() === yesterday.getTime()) return `был(а) вчера в ${time}`;
+
+  const date = d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' });
+  return `был(а) ${date} в ${time}`;
 }
 
 function uploadBlobWithProgress(blob, ext, onProgress) {

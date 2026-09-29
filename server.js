@@ -11,6 +11,7 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
+// === Backblaze B2 ===
 const s3 = new S3Client({
   region: process.env.B2_REGION,
   endpoint: process.env.B2_ENDPOINT,
@@ -23,6 +24,11 @@ const s3 = new S3Client({
 
 const BUCKET = process.env.B2_BUCKET;
 
+// === Хранилище статусов пользователей ===
+// user → { online, last_seen, avatar }
+const userStates = {};
+
+// === Статика ===
 app.use(express.static(path.join(__dirname, 'public')));
 
 // === Загрузка в B2 ===
@@ -30,6 +36,7 @@ app.put('/upload/:key(*)', async (req, res) => {
   try {
     const key = req.params.key;
     if (!key) return res.status(400).json({ error: 'No key' });
+
     const chunks = [];
     let total = 0;
     const MAX = 25 * 1024 * 1024;
@@ -66,14 +73,21 @@ app.put('/upload/:key(*)', async (req, res) => {
   }
 });
 
-// === Отдача из B2 ===
+// === Отдача из B2 (прокси через сервер — обходит CORS) ===
 app.get('/media/:key(*)', async (req, res) => {
   try {
     const key = req.params.key;
-    const url = await getSignedUrl(s3, new GetObjectCommand({
-      Bucket: BUCKET, Key: key,
-    }), { expiresIn: 3600 });
-    res.redirect(url);
+    const s3res = await s3.send(new GetObjectCommand({
+      Bucket: BUCKET,
+      Key: key,
+    }));
+
+    if (s3res.ContentType) res.setHeader('Content-Type', s3res.ContentType);
+    if (s3res.ContentLength) res.setHeader('Content-Length', s3res.ContentLength);
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+
+    s3res.Body.pipe(res);
   } catch (e) {
     console.error('Get media error:', e);
     res.status(500).json({ error: e.message });
@@ -84,6 +98,7 @@ app.get('/media/:key(*)', async (req, res) => {
 wss.on('connection', async (ws) => {
   console.log('🔌 Клиент подключился');
 
+  // Отправляем историю
   try {
     const history = await getHistory(200);
     ws.send(JSON.stringify({ type: 'history', messages: history }));
@@ -91,20 +106,44 @@ wss.on('connection', async (ws) => {
     console.error('History error:', e);
   }
 
+  // Отправляем текущие статусы всех пользователей новому клиенту
+  for (const name in userStates) {
+    ws.send(JSON.stringify({
+      type: 'presence',
+      user: name,
+      online: userStates[name].online,
+      avatar: userStates[name].avatar,
+      last_seen: userStates[name].last_seen,
+    }));
+  }
+
   ws.on('message', async (data) => {
     try {
       const msg = JSON.parse(data);
 
-      // Presence
+      // === Presence ===
       if (msg.type === 'presence') {
-        const payload = JSON.stringify(msg);
+        userStates[msg.user] = {
+          online: msg.online,
+          last_seen: Date.now(),
+          avatar: msg.avatar || userStates[msg.user]?.avatar || null,
+        };
+
+        const payload = JSON.stringify({
+          type: 'presence',
+          user: msg.user,
+          online: msg.online,
+          avatar: userStates[msg.user].avatar,
+          last_seen: userStates[msg.user].last_seen,
+        });
+
         for (const client of wss.clients) {
           if (client.readyState === WebSocket.OPEN) client.send(payload);
         }
         return;
       }
 
-      // Метка прочтения
+      // === Метка прочтения ===
       if (msg.type === 'read') {
         if (msg.ids && msg.ids.length > 0) {
           await markRead(msg.ids);
@@ -116,7 +155,7 @@ wss.on('connection', async (ws) => {
         return;
       }
 
-      // Удаление сообщения
+      // === Удаление ===
       if (msg.type === 'delete') {
         await deleteMessage(msg.id, msg.forAll);
         const payload = JSON.stringify(msg);
@@ -126,7 +165,7 @@ wss.on('connection', async (ws) => {
         return;
       }
 
-      // Текст / голосовое / видео
+      // === Текст / ГС / кружок ===
       if (msg.type === 'text' || msg.type === 'voice' || msg.type === 'video') {
         const saved = await saveMessage(msg);
         const outgoing = {
@@ -150,7 +189,29 @@ wss.on('connection', async (ws) => {
     }
   });
 
-  ws.on('close', () => console.log('❌ Клиент отключился'));
+  ws.on('close', () => {
+    // Помечаем всех пользователей офлайн (грубо, но для 2 человек работает)
+    const now = Date.now();
+    for (const name in userStates) {
+      if (userStates[name].online) {
+        userStates[name].online = false;
+        userStates[name].last_seen = now;
+
+        const payload = JSON.stringify({
+          type: 'presence',
+          user: name,
+          online: false,
+          avatar: userStates[name].avatar,
+          last_seen: now,
+        });
+
+        for (const client of wss.clients) {
+          if (client.readyState === WebSocket.OPEN) client.send(payload);
+        }
+      }
+    }
+    console.log('❌ Клиент отключился');
+  });
 });
 
 const PORT = process.env.PORT || 3000;
