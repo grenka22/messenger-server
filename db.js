@@ -58,11 +58,8 @@ async function markRead(ids) {
 }
 
 async function deleteMessage(id, forAll) {
-  if (forAll) {
-    await pool.query(`UPDATE messages SET deleted_for_all = TRUE WHERE id = $1`, [id]);
-  } else {
-    await pool.query(`UPDATE messages SET deleted_for_sender = TRUE WHERE id = $1`, [id]);
-  }
+  if (forAll) await pool.query(`UPDATE messages SET deleted_for_all = TRUE WHERE id = $1`, [id]);
+  else await pool.query(`UPDATE messages SET deleted_for_sender = TRUE WHERE id = $1`, [id]);
 }
 
 module.exports = { initDB, saveMessage, getHistory, markRead, deleteMessage };
