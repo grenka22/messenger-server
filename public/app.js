@@ -43,7 +43,7 @@ const $recTime = document.getElementById('recTime');
 // === Состояние ===
 let ws = null;
 let reconnectTimer = null;
-let myName = localStorage.getItem('my_name') || '';
+let myName = '';  // ВСЕГДА пустое при загрузке — логин каждый раз
 let profile = {
   email: localStorage.getItem('profile_email') || '',
   avatar: localStorage.getItem('profile_avatar') || '',
@@ -66,22 +66,28 @@ function showLogin() {
   document.querySelectorAll('.user-btn').forEach(btn => {
     btn.onclick = () => {
       myName = btn.dataset.user;
-      localStorage.setItem('my_name', myName);
+      localStorage.setItem('my_name', myName); // сохраняем только для отправки presence
       $loginScreen.classList.add('hidden');
       initChat();
     };
   });
 }
 
-// === Инициализация чата ===
+// === Инициализация ===
 function initChat() {
   const peer = USERS[myName]?.peer;
-  if (!peer) {
-    localStorage.removeItem('my_name');
-    return showLogin();
-  }
+  if (!peer) return showLogin();
   $peerName.textContent = peer;
+  // Сбросим статус собеседника на «не в сети» пока не получим presence
+  $peerStatus.textContent = 'не в сети';
+  $peerStatus.className = 'peer-status offline';
   updatePeerAvatar();
+  // Покажем свою аватарку в шапке (из кэша, моментально)
+  if (profile.avatar) {
+    const url = `/media/${encodeURIComponent(profile.avatar)}`;
+    $headerAvatar.src = url;
+    $headerAvatar.classList.add('loaded');
+  }
   connect();
 }
 
@@ -99,6 +105,7 @@ function connect() {
 
   ws.onopen = () => {
     console.log('WebSocket подключён');
+    // Говорим серверу: я зашёл
     ws.send(JSON.stringify({
       type: 'presence',
       user: myName,
@@ -123,17 +130,17 @@ function connect() {
   };
 
   ws.onclose = () => {
+    // Помечаем собеседника как «не в сети», если соединение упало
+    const peer = USERS[myName]?.peer;
+    if (peer) {
+      $peerStatus.textContent = 'не в сети';
+      $peerStatus.className = 'peer-status offline';
+    }
     clearTimeout(reconnectTimer);
     reconnectTimer = setTimeout(connect, 2000);
   };
 
   ws.onerror = (err) => console.error('WebSocket ошибка:', err);
-
-  window.addEventListener('beforeunload', () => {
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'presence', user: myName, online: false }));
-    }
-  });
 }
 
 // === Presence ===
@@ -186,9 +193,10 @@ function renderMessage(msg) {
     const btn = wrap.querySelector('.play-btn');
     const canvas = wrap.querySelector('.wave');
     const ctx = canvas.getContext('2d');
+    const colorMain = isMine ? 'rgba(255,255,255,0.85)' : 'rgba(74,144,226,0.7)';
+    const colorBg = isMine ? 'rgba(255,255,255,0.35)' : 'rgba(74,144,226,0.25)';
 
-    // Стартовая заглушка
-    drawWaveform(ctx, canvas.width, canvas.height, null, isMine ? 'rgba(255,255,255,0.35)' : 'rgba(74,144,226,0.25)');
+    drawWaveform(ctx, canvas.width, canvas.height, null, colorBg);
 
     let peaks = null;
     fetch(mediaUrl)
@@ -199,9 +207,9 @@ function renderMessage(msg) {
       })
       .then(audioBuffer => {
         peaks = extractPeaks(audioBuffer, 60);
-        drawWaveform(ctx, canvas.width, canvas.height, peaks, isMine ? 'rgba(255,255,255,0.85)' : 'rgba(74,144,226,0.7)', peaks, 0);
+        drawWaveform(ctx, canvas.width, canvas.height, peaks, colorMain, peaks, 0);
       })
-      .catch(e => console.warn('Не удалось построить волну:', e));
+      .catch(e => console.warn('Waveform error:', e));
 
     btn.addEventListener('click', () => {
       if (audio.paused) { audio.play(); btn.textContent = '⏸'; }
@@ -209,12 +217,12 @@ function renderMessage(msg) {
     });
     audio.addEventListener('ended', () => {
       btn.textContent = '▶';
-      if (peaks) drawWaveform(ctx, canvas.width, canvas.height, peaks, isMine ? 'rgba(255,255,255,0.85)' : 'rgba(74,144,226,0.7)', peaks, 0);
+      if (peaks) drawWaveform(ctx, canvas.width, canvas.height, peaks, colorMain, peaks, 0);
     });
     audio.addEventListener('timeupdate', () => {
       if (!audio.duration || !peaks) return;
       const progress = audio.currentTime / audio.duration;
-      drawWaveform(ctx, canvas.width, canvas.height, peaks, isMine ? 'rgba(255,255,255,0.85)' : 'rgba(74,144,226,0.7)', peaks, progress);
+      drawWaveform(ctx, canvas.width, canvas.height, peaks, colorMain, peaks, progress);
     });
 
   } else if (msg.type === 'video') {
@@ -242,8 +250,8 @@ function renderMessage(msg) {
 // === Утилиты ===
 function pickMimeType(kind) {
   const candidates = kind === 'video'
-    ? ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4']
-    : ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus'];
+    ? ['video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4']
+    : ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'];
   for (const t of candidates) {
     if (window.MediaRecorder && MediaRecorder.isTypeSupported(t)) return t;
   }
@@ -261,16 +269,53 @@ function formatTime(ts) {
   return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
 }
 
-// === Загрузка ===
-async function uploadBlob(blob, ext) {
-  const key = `media/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
-  const res = await fetch(`/upload/${encodeURIComponent(key)}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': blob.type || 'application/octet-stream' },
-    body: blob,
+// === Загрузка с прогрессом ===
+function uploadBlobWithProgress(blob, ext, onProgress) {
+  return new Promise((resolve, reject) => {
+    const key = `media/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', `/upload/${encodeURIComponent(key)}`);
+    xhr.setRequestHeader('Content-Type', blob.type || 'application/octet-stream');
+
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && onProgress) {
+        onProgress(Math.round((e.loaded / e.total) * 100));
+      }
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) resolve(key);
+      else reject(new Error('Upload failed: ' + xhr.status));
+    };
+    xhr.onerror = () => reject(new Error('Failed to fetch'));
+    xhr.ontimeout = () => reject(new Error('Timeout'));
+    xhr.timeout = 120000; // 2 минуты
+    xhr.send(blob);
   });
-  if (!res.ok) throw new Error('Upload failed: ' + res.status);
-  return key;
+}
+
+// === Индикатор загрузки в пузыре ===
+function showUploadingBubble(label) {
+  const wrap = document.createElement('div');
+  wrap.className = 'msg mine';
+  wrap.id = 'uploading-bubble';
+  wrap.innerHTML = `
+    <div class="upload-progress">
+      <div class="upload-label">${label}</div>
+      <div class="upload-bar"><div class="upload-fill" id="uploadFill"></div></div>
+      <div class="upload-pct" id="uploadPct">0%</div>
+    </div>
+  `;
+  $messages.appendChild(wrap);
+  $messages.scrollTop = $messages.scrollHeight;
+  return {
+    setProgress: (pct) => {
+      const f = document.getElementById('uploadFill');
+      const p = document.getElementById('uploadPct');
+      if (f) f.style.width = pct + '%';
+      if (p) p.textContent = pct + '%';
+    },
+    remove: () => wrap.remove(),
+  };
 }
 
 // === Голосовое ===
@@ -289,14 +334,17 @@ async function startVoiceRecording() {
       stream.getTracks().forEach(t => t.stop());
       const blob = new Blob(voiceChunks, { type: voiceRecorder.mimeType || 'audio/webm' });
       const duration = Math.round((Date.now() - voiceStartTime) / 1000);
+      const ext = blob.type.includes('mp4') ? 'm4a' : 'webm';
+      const bubble = showUploadingBubble('Голосовое');
       try {
-        const ext = blob.type.includes('mp4') ? 'm4a' : 'webm';
-        const key = await uploadBlob(blob, ext);
+        const key = await uploadBlobWithProgress(blob, ext, (p) => bubble.setProgress(p));
+        bubble.remove();
         ws.send(JSON.stringify({
           type: 'voice', sender: myName, mediaKey: key,
           mime: blob.type, duration,
         }));
       } catch (e) {
+        bubble.remove();
         console.error(e);
         alert('Не удалось отправить голосовое: ' + e.message);
       }
@@ -327,15 +375,18 @@ function stopVoiceRecording() {
 // === Кружок ===
 async function startCircleRecording() {
   try {
+    // Более низкие параметры для уменьшения размера
     circleStream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'user', width: 480, height: 480 },
+      video: { facingMode: 'user', width: 320, height: 320, frameRate: 20 },
       audio: true,
     });
     $circleVideo.srcObject = circleStream;
     $circlePreview.classList.add('active');
 
     const mimeType = pickMimeType('video');
-    circleRecorder = mimeType ? new MediaRecorder(circleStream, { mimeType }) : new MediaRecorder(circleStream);
+    circleRecorder = mimeType
+      ? new MediaRecorder(circleStream, { mimeType, videoBitsPerSecond: 400000, audioBitsPerSecond: 64000 })
+      : new MediaRecorder(circleStream);
     circleChunks = [];
 
     circleRecorder.ondataavailable = (e) => {
@@ -349,16 +400,19 @@ async function startCircleRecording() {
 
       const blob = new Blob(circleChunks, { type: circleRecorder.mimeType || 'video/webm' });
       const duration = Math.round((Date.now() - circleStartTime) / 1000);
-      console.log('Кружок:', blob.size, 'байт, тип:', blob.type, 'длит:', duration);
+      console.log('Кружок:', (blob.size / 1024).toFixed(0), 'КБ, тип:', blob.type, 'длит:', duration);
 
+      const ext = blob.type.includes('mp4') ? 'mp4' : 'webm';
+      const bubble = showUploadingBubble('Кружок');
       try {
-        const ext = blob.type.includes('mp4') ? 'mp4' : 'webm';
-        const key = await uploadBlob(blob, ext);
+        const key = await uploadBlobWithProgress(blob, ext, (p) => bubble.setProgress(p));
+        bubble.remove();
         ws.send(JSON.stringify({
           type: 'video', sender: myName, mediaKey: key,
           mime: blob.type, duration,
         }));
       } catch (e) {
+        bubble.remove();
         console.error(e);
         alert('Не удалось отправить кружок: ' + e.message);
       }
@@ -391,9 +445,7 @@ function extractPeaks(audioBuffer, count) {
   const peaks = [];
   for (let i = 0; i < count; i++) {
     let sum = 0;
-    for (let j = 0; j < blockSize; j++) {
-      sum += Math.abs(raw[i * blockSize + j]);
-    }
+    for (let j = 0; j < blockSize; j++) sum += Math.abs(raw[i * blockSize + j]);
     peaks.push(sum / blockSize);
   }
   const max = Math.max(...peaks);
@@ -406,7 +458,6 @@ function drawWaveform(ctx, w, h, peaks, color, originalPeaks, progress) {
   const barW = 2;
   const gap = (w - bars * barW) / (bars - 1);
   const mid = h / 2;
-
   for (let i = 0; i < bars; i++) {
     const p = peaks ? peaks[i] : 0.4;
     const barH = Math.max(2, p * (h - 4));
@@ -425,8 +476,6 @@ function openProfile() {
     const url = `/media/${encodeURIComponent(profile.avatar)}`;
     $avatarImg.src = url;
     $avatarImg.classList.add('loaded');
-    $headerAvatar.src = url;
-    $headerAvatar.classList.add('loaded');
   }
   $profileModal.classList.add('active');
 }
@@ -488,7 +537,6 @@ $profileModal.addEventListener('click', (e) => {
   if (e.target === $profileModal) closeProfile();
 });
 
-// Голосовое: нажатие/отпускание
 $btnVoice.addEventListener('mousedown', (e) => { e.preventDefault(); startVoiceRecording(); });
 $btnVoice.addEventListener('mouseup', stopVoiceRecording);
 $btnVoice.addEventListener('mouseleave', stopVoiceRecording);
@@ -507,11 +555,5 @@ $circleCancel.addEventListener('click', () => {
 });
 $circleSend.addEventListener('click', stopCircleRecording);
 
-// === Старт ===
-if (myName && USERS[myName]) {
-  $loginScreen.classList.add('hidden');
-  initChat();
-} else {
-  localStorage.removeItem('my_name');
-  showLogin();
-}
+// === Старт — ВСЕГДА показываем логин ===
+showLogin();
