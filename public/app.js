@@ -40,10 +40,7 @@ const $recTime = document.getElementById('recTime');
 let ws = null;
 let reconnectTimer = null;
 let myName = '';
-let profile = {
-  email: localStorage.getItem('profile_email') || '',
-  avatar: localStorage.getItem('profile_avatar') || '',
-};
+let profile = { email: '' };
 
 let voiceRecorder = null;
 let voiceChunks = [];
@@ -57,8 +54,11 @@ let circleChunks = [];
 let circleStartTime = 0;
 let circleTimerInterval = null;
 
-// Хранилище отрендеренных сообщений (id → DOM)
 const renderedMessages = new Map();
+
+// === Ключи для localStorage по пользователю ===
+function myAvatarKey() { return `avatar_${myName}`; }
+function peerAvatarKey(peer) { return `peer_avatar_${peer}`; }
 
 // === Логин ===
 function showLogin() {
@@ -66,7 +66,7 @@ function showLogin() {
   document.querySelectorAll('.user-btn').forEach(btn => {
     btn.onclick = () => {
       myName = btn.dataset.user;
-      localStorage.setItem('my_name', myName);
+      profile.email = localStorage.getItem(`email_${myName}`) || '';
       $loginScreen.classList.add('hidden');
       initChat();
     };
@@ -79,20 +79,32 @@ function initChat() {
   $peerName.textContent = peer;
   $peerStatus.textContent = 'не в сети';
   $peerStatus.className = 'peer-status offline';
-  updatePeerAvatar();
-  if (profile.avatar) {
-    const url = `/media/${encodeURIComponent(profile.avatar)}`;
+
+  // Своя аватарка в шапке
+  const myAv = localStorage.getItem(myAvatarKey());
+  if (myAv) {
+    const url = `/media/${encodeURIComponent(myAv)}`;
     $headerAvatar.src = url;
     $headerAvatar.classList.add('loaded');
+  } else {
+    $headerAvatar.classList.remove('loaded');
   }
+
+  // Аватарка собеседника
+  updatePeerAvatar();
   connect();
 }
 
 function updatePeerAvatar() {
   const peer = USERS[myName]?.peer;
-  const key = localStorage.getItem(`peer_avatar_${peer}`);
+  const key = localStorage.getItem(peerAvatarKey(peer));
   if (key) {
     $peerAvatar.innerHTML = `<img src="/media/${encodeURIComponent(key)}" alt="">`;
+  } else {
+    $peerAvatar.innerHTML = `
+      <svg viewBox="0 0 24 24" width="26" height="26" fill="#C9B0A0">
+        <path d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10Zm0 2c-4.42 0-8 2.24-8 5v1h16v-1c0-2.76-3.58-5-8-5Z"/>
+      </svg>`;
   }
 }
 
@@ -102,11 +114,8 @@ function connect() {
 
   ws.onopen = () => {
     console.log('WS connected');
-    // Первое presence
     sendPresence();
-    // Повторное через 1 сек на случай, если собеседник ещё не подключён
     setTimeout(sendPresence, 1000);
-    // И через 3 сек — на случай, если Render «просыпается»
     setTimeout(sendPresence, 3000);
   };
 
@@ -115,7 +124,6 @@ function connect() {
       const msg = JSON.parse(event.data);
       if (msg.type === 'history') {
         msg.messages.forEach(renderMessage);
-        // Помечаем все входящие как прочитанные
         markAllRead();
       } else if (msg.type === 'presence') {
         handlePresence(msg);
@@ -125,10 +133,7 @@ function connect() {
         handleDelete(msg);
       } else {
         renderMessage(msg);
-        // Если сообщение входящее — сразу помечаем прочитанным
-        if (msg.sender !== myName && msg.id) {
-          markRead([msg.id]);
-        }
+        if (msg.sender !== myName && msg.id) markRead([msg.id]);
       }
     } catch (e) {
       console.error('Parse error:', e);
@@ -154,7 +159,7 @@ function sendPresence() {
       type: 'presence',
       user: myName,
       online: true,
-      avatar: profile.avatar || null,
+      avatar: localStorage.getItem(myAvatarKey()) || null,
     }));
   }
 }
@@ -170,10 +175,9 @@ function handlePresence(msg) {
       $peerStatus.className = 'peer-status offline';
     }
     if (msg.avatar) {
-      localStorage.setItem(`peer_avatar_${peer}`, msg.avatar);
+      localStorage.setItem(peerAvatarKey(peer), msg.avatar);
       updatePeerAvatar();
     }
-    // Если собеседник онлайн — отправим своё presence обратно, чтобы он нас увидел
     if (msg.online) sendPresence();
   }
 }
@@ -192,12 +196,7 @@ function handleRead(msg) {
 function handleDelete(msg) {
   const el = renderedMessages.get(msg.id);
   if (el) {
-    if (msg.forAll) {
-      el.remove();
-    } else {
-      // Удаление только у себя — возможно, это не мы отправили, просто игнорируем
-      el.remove();
-    }
+    el.remove();
     renderedMessages.delete(msg.id);
   }
 }
@@ -211,7 +210,6 @@ function sendText() {
   $input.focus();
 }
 
-// === Прочитано ===
 function markRead(ids) {
   if (!ids.length || !ws || ws.readyState !== WebSocket.OPEN) return;
   ws.send(JSON.stringify({ type: 'read', ids, by: myName }));
@@ -225,9 +223,9 @@ function markAllRead() {
   if (ids.length) markRead(ids);
 }
 
-// === Отображение ===
+// === Отображение сообщения ===
 function renderMessage(msg) {
-  if (msg.id && renderedMessages.has(msg.id)) return; // уже отрисовано
+  if (msg.id && renderedMessages.has(msg.id)) return;
   const isMine = msg.sender === myName;
   const wrap = document.createElement('div');
   wrap.className = 'msg ' + (isMine ? 'mine' : 'theirs');
@@ -238,10 +236,9 @@ function renderMessage(msg) {
   } else if (msg.type === 'voice') {
     wrap.appendChild(buildVoicePlayer(msg, isMine));
   } else if (msg.type === 'video') {
-    wrap.appendChild(buildCirclePlayer(msg));
+    wrap.appendChild(buildCirclePlayer(msg, isMine));
   }
 
-  // Время + галочки + кнопка меню
   const meta = document.createElement('div');
   meta.className = 'meta';
 
@@ -267,13 +264,12 @@ function renderMessage(msg) {
   meta.appendChild(menu);
 
   wrap.appendChild(meta);
-
   $messages.appendChild(wrap);
   $messages.scrollTop = $messages.scrollHeight;
   if (msg.id) renderedMessages.set(msg.id, wrap);
 }
 
-// === Плеер голосового с перемоткой ===
+// === Плеер ГС с перемоткой ===
 function buildVoicePlayer(msg, isMine) {
   const mediaUrl = `/media/${encodeURIComponent(msg.mediaKey)}`;
   const box = document.createElement('div');
@@ -307,12 +303,10 @@ function buildVoicePlayer(msg, isMine) {
     })
     .catch(e => console.warn('Waveform error:', e));
 
-  // Клик по волне — перемотка
   canvas.addEventListener('click', (e) => {
     if (!audio.duration) return;
     const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const ratio = x / rect.width;
+    const ratio = (e.clientX - rect.left) / rect.width;
     audio.currentTime = ratio * audio.duration;
   });
 
@@ -335,25 +329,40 @@ function buildVoicePlayer(msg, isMine) {
       durEl.textContent = formatDuration(Math.floor(audio.duration));
     }
   });
-
   return box;
 }
 
-// === Плеер кружка с перемоткой ===
-function buildCirclePlayer(msg) {
+// === Плеер кружка с круговой обводкой ===
+function buildCirclePlayer(msg, isMine) {
   const box = document.createElement('div');
   box.className = 'circle-msg';
+
+  const size = 180;
+  const radius = size / 2 - 3;
+  const circumference = 2 * Math.PI * radius;
+
   box.innerHTML = `
     <video src="/media/${encodeURIComponent(msg.mediaKey)}"
            playsinline muted preload="metadata"></video>
-    <div class="circle-progress"><div class="circle-fill"></div></div>
+    <svg class="circle-ring" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+      <circle cx="${size/2}" cy="${size/2}" r="${radius}"
+              fill="none" stroke="rgba(255,255,255,0.35)" stroke-width="4"/>
+      <circle class="circle-ring-progress" cx="${size/2}" cy="${size/2}" r="${radius}"
+              fill="none" stroke="#4A90E2" stroke-width="4"
+              stroke-linecap="round"
+              stroke-dasharray="${circumference}"
+              stroke-dashoffset="${circumference}"
+              transform="rotate(-90 ${size/2} ${size/2})"/>
+    </svg>
   `;
-  const vid = box.querySelector('video');
-  const fill = box.querySelector('.circle-fill');
-  const progress = box.querySelector('.circle-progress');
 
+  const vid = box.querySelector('video');
+  const ring = box.querySelector('.circle-ring-progress');
+  const videoWrap = box;
+
+  // Показать первый кадр
   vid.addEventListener('loadedmetadata', () => {
-    vid.currentTime = 0.001; // показать первый кадр
+    vid.currentTime = 0.001;
   });
 
   // Клик по видео — play/pause
@@ -363,21 +372,32 @@ function buildCirclePlayer(msg) {
     else { vid.pause(); }
   });
 
-  // Перемотка по клику на полосу прогресса
-  progress.addEventListener('click', (e) => {
-    e.stopPropagation();
+  // Клик по кольцу — перемотка
+  videoWrap.addEventListener('click', (e) => {
     if (!vid.duration) return;
-    const rect = progress.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const ratio = x / rect.width;
-    vid.currentTime = ratio * vid.duration;
+    if (e.target === vid || e.target.classList.contains('circle-ring')) {
+      // Определяем угол относительно центра
+      const rect = videoWrap.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+      const dx = e.clientX - cx;
+      const dy = e.clientY - cy;
+      // Угол в радианах, отсчёт от верхней точки по часовой
+      let angle = Math.atan2(dy, dx) + Math.PI / 2;
+      if (angle < 0) angle += 2 * Math.PI;
+      const ratio = angle / (2 * Math.PI);
+      vid.currentTime = ratio * vid.duration;
+    }
   });
 
   vid.addEventListener('timeupdate', () => {
     if (!vid.duration) return;
-    fill.style.width = (vid.currentTime / vid.duration * 100) + '%';
+    const progress = vid.currentTime / vid.duration;
+    ring.style.strokeDashoffset = circumference * (1 - progress);
   });
-  vid.addEventListener('ended', () => { fill.style.width = '0%'; });
+  vid.addEventListener('ended', () => {
+    ring.style.strokeDashoffset = circumference;
+  });
 
   return box;
 }
@@ -445,7 +465,7 @@ function showUploadingBubble(label) {
   };
 }
 
-// === ГОЛОСОВОЕ ===
+// === ГС ===
 async function startVoiceRecording() {
   try {
     voiceStream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -458,23 +478,14 @@ async function startVoiceRecording() {
     };
 
     voiceRecorder.onstop = async () => {
-      // ВАЖНО: останавливаем поток
       if (voiceStream) {
         voiceStream.getTracks().forEach(t => t.stop());
         voiceStream = null;
       }
       const blob = new Blob(voiceChunks, { type: voiceRecorder.mimeType || 'audio/webm' });
       const duration = Math.round((Date.now() - voiceStartTime) / 1000);
-
-      if (duration < MIN_VOICE_SECONDS) {
-        alert('Слишком короткое голосовое (минимум 1 сек)');
-        return;
-      }
-      if (blob.size === 0) {
-        alert('Пустая запись, попробуйте снова');
-        return;
-      }
-      console.log('ГС:', (blob.size / 1024).toFixed(0), 'КБ, длит:', duration);
+      if (duration < MIN_VOICE_SECONDS) return alert('Минимум 1 сек');
+      if (blob.size === 0) return alert('Пустая запись');
 
       const ext = blob.type.includes('mp4') ? 'm4a' : 'webm';
       const bubble = showUploadingBubble('Голосовое');
@@ -487,13 +498,12 @@ async function startVoiceRecording() {
         }));
       } catch (e) {
         bubble.remove();
-        console.error(e);
-        alert('Не удалось отправить голосовое: ' + e.message);
+        alert('Ошибка: ' + e.message);
       }
     };
 
     voiceStartTime = Date.now();
-    voiceRecorder.start(100); // запрашивать данные каждые 100мс — исправляет 0-секундные записи
+    voiceRecorder.start(100);
     $recIndicator.classList.add('active');
     $btnVoice.classList.add('rec');
     voiceTimerInterval = setInterval(() => {
@@ -509,7 +519,7 @@ async function startVoiceRecording() {
 
 function stopVoiceRecording() {
   if (voiceRecorder && voiceRecorder.state === 'recording') {
-    voiceRecorder.requestData(); // принудительно забираем последние данные
+    voiceRecorder.requestData();
     voiceRecorder.stop();
   }
   clearInterval(voiceTimerInterval);
@@ -517,7 +527,7 @@ function stopVoiceRecording() {
   $btnVoice.classList.remove('rec');
 }
 
-// === КРУЖОК ===
+// === Кружок ===
 async function startCircleRecording() {
   try {
     circleStream = await navigator.mediaDevices.getUserMedia({
@@ -554,8 +564,7 @@ async function startCircleRecording() {
         }));
       } catch (e) {
         bubble.remove();
-        console.error(e);
-        alert('Не удалось отправить кружок: ' + e.message);
+        alert('Ошибка: ' + e.message);
       }
     };
 
@@ -584,16 +593,13 @@ function stopCircleRecording() {
 
 // === Меню сообщения ===
 function showMessageMenu(msg, wrap) {
-  // Удаляем старое меню
   document.querySelectorAll('.msg-popup').forEach(p => p.remove());
-
   const popup = document.createElement('div');
   popup.className = 'msg-popup';
   popup.innerHTML = `
     <button data-action="delete-me">Удалить у себя</button>
     <button data-action="delete-all">Удалить у обоих</button>
   `;
-
   popup.querySelector('[data-action="delete-me"]').addEventListener('click', () => {
     ws.send(JSON.stringify({ type: 'delete', id: msg.id, forAll: false, by: myName }));
     popup.remove();
@@ -602,14 +608,12 @@ function showMessageMenu(msg, wrap) {
     ws.send(JSON.stringify({ type: 'delete', id: msg.id, forAll: true, by: myName }));
     popup.remove();
   });
-
   document.body.appendChild(popup);
   const rect = wrap.getBoundingClientRect();
   popup.style.position = 'fixed';
   popup.style.top = (rect.bottom + 5) + 'px';
   popup.style.left = Math.max(10, rect.left) + 'px';
   popup.style.zIndex = '300';
-
   setTimeout(() => {
     document.addEventListener('click', function close(e) {
       if (!popup.contains(e.target)) {
@@ -654,10 +658,14 @@ function drawWaveform(ctx, w, h, peaks, color, originalPeaks, progress) {
 function openProfile() {
   $profileName.value = myName;
   $profileEmail.value = profile.email;
-  if (profile.avatar) {
-    const url = `/media/${encodeURIComponent(profile.avatar)}`;
+  const myAv = localStorage.getItem(myAvatarKey());
+  if (myAv) {
+    const url = `/media/${encodeURIComponent(myAv)}`;
     $avatarImg.src = url;
     $avatarImg.classList.add('loaded');
+  } else {
+    $avatarImg.classList.remove('loaded');
+    $avatarImg.src = '';
   }
   $profileModal.classList.add('active');
 }
@@ -667,8 +675,7 @@ function closeProfile() { $profileModal.classList.remove('active'); }
 async function saveProfile() {
   myName = $profileName.value.trim() || myName;
   profile.email = $profileEmail.value.trim();
-  localStorage.setItem('my_name', myName);
-  localStorage.setItem('profile_email', profile.email);
+  localStorage.setItem(`email_${myName}`, profile.email);
   closeProfile();
   alert('Профиль сохранён');
 }
@@ -685,13 +692,14 @@ async function uploadAvatar(file) {
       body: file,
     });
     if (!res.ok) throw new Error('Upload failed');
-    profile.avatar = key;
-    localStorage.setItem('profile_avatar', key);
+    // Сохраняем в свой ключ
+    localStorage.setItem(myAvatarKey(), key);
     const url = `/media/${encodeURIComponent(key)}`;
     $avatarImg.src = url;
     $avatarImg.classList.add('loaded');
     $headerAvatar.src = url;
     $headerAvatar.classList.add('loaded');
+    // Сообщаем всем через presence
     if (ws && ws.readyState === WebSocket.OPEN) sendPresence();
   } catch (e) {
     console.error(e);
@@ -732,5 +740,5 @@ $circleCancel.addEventListener('click', () => {
 });
 $circleSend.addEventListener('click', stopCircleRecording);
 
-// === Старт — всегда логин ===
+// === Старт ===
 showLogin();

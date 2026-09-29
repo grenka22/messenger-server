@@ -83,7 +83,7 @@ body {
 .peer-avatar {
   width: 46px; height: 46px;
   border-radius: 50%;
-  background: #fff;
+  background: transparent;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -150,6 +150,7 @@ body {
   line-height: 1.35;
   word-wrap: break-word;
   animation: fadeIn 0.15s ease;
+  position: relative;
 }
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(4px); }
@@ -176,6 +177,67 @@ body {
   text-align: right;
 }
 
+/* === Мета: время + галочки + меню === */
+.meta {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 3px;
+}
+.meta .time {
+  font-size: 11px;
+  opacity: 0.65;
+  margin-top: 0;
+  text-align: right;
+}
+.read-check {
+  font-size: 12px;
+  color: rgba(255,255,255,0.6);
+  letter-spacing: -2px;
+}
+.read-check.read {
+  color: #4ADFFF;
+}
+.msg.theirs .read-check { color: rgba(0,0,0,0.25); }
+.msg.theirs .read-check.read { color: #4A90E2; }
+
+.msg-menu {
+  background: transparent;
+  border: none;
+  color: rgba(255,255,255,0.6);
+  cursor: pointer;
+  font-size: 16px;
+  padding: 0 2px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.msg:hover .msg-menu { opacity: 1; }
+.msg.theirs .msg-menu { color: rgba(0,0,0,0.35); }
+
+/* === Попап меню сообщения === */
+.msg-popup {
+  background: #fff;
+  border: 1px solid #F5D0B8;
+  border-radius: 12px;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.15);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  min-width: 180px;
+}
+.msg-popup button {
+  background: transparent;
+  border: none;
+  text-align: left;
+  padding: 10px 14px;
+  font-size: 14px;
+  color: #5A3A2A;
+  cursor: pointer;
+  border-radius: 8px;
+}
+.msg-popup button:hover { background: #FFE4D1; }
+
 /* === Голосовое с волной === */
 .voice-msg {
   display: flex;
@@ -196,21 +258,37 @@ body {
   font-size: 13px;
   flex-shrink: 0;
 }
-.voice-msg .wave { flex: 1; height: 28px; }
+.voice-msg .wave { flex: 1; height: 28px; cursor: pointer; }
 .voice-msg .dur { font-size: 12px; opacity: 0.75; min-width: 30px; text-align: right; }
 
 .msg.theirs .voice-msg .play-btn { background: rgba(0,0,0,0.08); }
 
-/* === Кружок === */
+/* === Кружок с круговой обводкой === */
 .circle-msg {
+  position: relative;
   width: 180px;
   height: 180px;
-  border-radius: 50%;
-  overflow: hidden;
-  background: #000;
   margin: 2px 0;
+  overflow: visible;
 }
-.circle-msg video { width: 100%; height: 100%; object-fit: cover; }
+.circle-msg video {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+  display: block;
+  background: #000;
+  cursor: pointer;
+}
+.circle-ring {
+  position: absolute;
+  top: 0; left: 0;
+  pointer-events: none;
+  width: 180px;
+  height: 180px;
+}
+.circle-ring-progress {
+  transition: stroke-dashoffset 0.15s linear;
+}
 
 /* === Панель ввода === */
 .composer {
@@ -340,7 +418,7 @@ body {
 }
 .save-btn:active { transform: scale(0.98); }
 
-/* === Оверлей кружка === */
+/* === Оверлей кружка (запись) === */
 .circle-preview {
   position: fixed; inset: 0;
   background: rgba(0,0,0,0.9);
@@ -367,7 +445,7 @@ body {
 .circle-preview .cancel { background: #666; }
 .circle-preview .send   { background: #4A90E2; }
 
-/* === Индикатор записи === */
+/* === Индикатор записи ГС === */
 .rec-indicator {
   display: none;
   position: fixed;
@@ -388,6 +466,7 @@ body {
   background: #E24A4A;
   animation: pulse 1s infinite;
 }
+
 /* === Индикатор загрузки в пузыре === */
 .upload-progress {
   min-width: 220px;
@@ -418,82 +497,5 @@ body {
   opacity: 0.9;
 }
 
-/* Для входящих (theirs) — инвертируем цвета */
 .msg.theirs .upload-bar { background: rgba(0,0,0,0.1); }
 .msg.theirs .upload-fill { background: #4A90E2; }
-/* === Мета: время + галочки + меню === */
-.meta {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
-  margin-top: 3px;
-}
-.read-check {
-  font-size: 12px;
-  color: rgba(255,255,255,0.6);
-  letter-spacing: -2px;
-}
-.read-check.read {
-  color: #4ADFFF;
-}
-.msg.theirs .read-check { color: rgba(0,0,0,0.25); }
-.msg.theirs .read-check.read { color: #4A90E2; }
-
-.msg-menu {
-  background: transparent;
-  border: none;
-  color: rgba(255,255,255,0.6);
-  cursor: pointer;
-  font-size: 16px;
-  padding: 0 2px;
-  opacity: 0;
-  transition: opacity 0.15s;
-}
-.msg:hover .msg-menu { opacity: 1; }
-.msg.theirs .msg-menu { color: rgba(0,0,0,0.35); }
-
-/* === Попап меню сообщения === */
-.msg-popup {
-  background: #fff;
-  border: 1px solid #F5D0B8;
-  border-radius: 12px;
-  box-shadow: 0 6px 20px rgba(0,0,0,0.15);
-  padding: 6px;
-  display: flex;
-  flex-direction: column;
-  min-width: 180px;
-}
-.msg-popup button {
-  background: transparent;
-  border: none;
-  text-align: left;
-  padding: 10px 14px;
-  font-size: 14px;
-  color: #5A3A2A;
-  cursor: pointer;
-  border-radius: 8px;
-}
-.msg-popup button:hover { background: #FFE4D1; }
-
-/* === Полоса прогресса кружка === */
-.circle-msg {
-  position: relative;
-}
-.circle-progress {
-  position: absolute;
-  bottom: 12px;
-  left: 20px;
-  right: 20px;
-  height: 3px;
-  background: rgba(255,255,255,0.3);
-  border-radius: 2px;
-  cursor: pointer;
-  overflow: hidden;
-}
-.circle-fill {
-  height: 100%;
-  width: 0%;
-  background: #fff;
-  transition: width 0.1s linear;
-}
