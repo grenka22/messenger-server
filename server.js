@@ -4,7 +4,6 @@ const http = require('http');
 const WebSocket = require('ws');
 const path = require('path');
 const { S3Client, PutObjectCommand, GetObjectCommand } = require('@aws-sdk/client-s3');
-const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 const { initDB, saveMessage, getHistory, markRead, deleteMessage } = require('./db');
 
 const app = express();
@@ -24,8 +23,7 @@ const s3 = new S3Client({
 
 const BUCKET = process.env.B2_BUCKET;
 
-// === Хранилище статусов пользователей ===
-// user → { online, last_seen, avatar }
+// === Статусы пользователей (в памяти) ===
 const userStates = {};
 
 // === Статика ===
@@ -73,7 +71,7 @@ app.put('/upload/:key(*)', async (req, res) => {
   }
 });
 
-// === Отдача из B2 (прокси через сервер — обходит CORS) ===
+// === Отдача из B2 (проксирование, обход CORS) ===
 app.get('/media/:key(*)', async (req, res) => {
   try {
     const key = req.params.key;
@@ -86,6 +84,7 @@ app.get('/media/:key(*)', async (req, res) => {
     if (s3res.ContentLength) res.setHeader('Content-Length', s3res.ContentLength);
     res.setHeader('Cache-Control', 'public, max-age=3600');
     res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Accept-Ranges', 'bytes');
 
     s3res.Body.pipe(res);
   } catch (e) {
@@ -98,7 +97,6 @@ app.get('/media/:key(*)', async (req, res) => {
 wss.on('connection', async (ws) => {
   console.log('🔌 Клиент подключился');
 
-  // Отправляем историю
   try {
     const history = await getHistory(200);
     ws.send(JSON.stringify({ type: 'history', messages: history }));
@@ -106,7 +104,7 @@ wss.on('connection', async (ws) => {
     console.error('History error:', e);
   }
 
-  // Отправляем текущие статусы всех пользователей новому клиенту
+  // Отправляем текущие статусы всех пользователей
   for (const name in userStates) {
     ws.send(JSON.stringify({
       type: 'presence',
@@ -143,7 +141,7 @@ wss.on('connection', async (ws) => {
         return;
       }
 
-      // === Метка прочтения ===
+      // === Прочтено ===
       if (msg.type === 'read') {
         if (msg.ids && msg.ids.length > 0) {
           await markRead(msg.ids);
@@ -190,7 +188,6 @@ wss.on('connection', async (ws) => {
   });
 
   ws.on('close', () => {
-    // Помечаем всех пользователей офлайн (грубо, но для 2 человек работает)
     const now = Date.now();
     for (const name in userStates) {
       if (userStates[name].online) {

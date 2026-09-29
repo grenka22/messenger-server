@@ -9,6 +9,10 @@ const USERS = {
   'Катюшка': { peer: 'Тимофей' },
 };
 
+// Определяем iOS один раз
+const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+               (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
 // ==================== ЭЛЕМЕНТЫ ====================
 const $messages = document.getElementById('messages');
 const $input = document.getElementById('textInput');
@@ -345,16 +349,41 @@ function buildCirclePlayer(msg) {
       <circle cx="${size/2}" cy="${size/2}" r="${radius}" fill="none" stroke="rgba(255,255,255,0.35)" stroke-width="4"/>
       <circle class="circle-ring-progress" cx="${size/2}" cy="${size/2}" r="${radius}" fill="none" stroke="#4A90E2" stroke-width="4" stroke-linecap="round" stroke-dasharray="${circumference}" stroke-dashoffset="${circumference}" transform="rotate(-90 ${size/2} ${size/2})"/>
     </svg>
+    <div class="circle-play-overlay">
+      <svg viewBox="0 0 24 24" width="34" height="34" fill="#fff">
+        <path d="M8 5v14l11-7z"/>
+      </svg>
+    </div>
   `;
 
   const vid = box.querySelector('video');
   const ring = box.querySelector('.circle-ring-progress');
+  const overlay = box.querySelector('.circle-play-overlay');
 
-  vid.addEventListener('loadedmetadata', () => { vid.currentTime = 0.001; });
+  vid.addEventListener('loadedmetadata', () => {
+    vid.currentTime = 0.001;
+    overlay.classList.add('visible');
+  });
+
   vid.addEventListener('click', (e) => {
     e.stopPropagation();
     if (vid.paused) { vid.muted = false; vid.play(); }
     else { vid.pause(); }
+  });
+
+  vid.addEventListener('play', () => {
+    overlay.classList.remove('visible');
+    box.classList.add('playing');
+  });
+  vid.addEventListener('pause', () => {
+    if (!vid.ended) overlay.classList.add('visible');
+    box.classList.remove('playing');
+  });
+  vid.addEventListener('ended', () => {
+    overlay.classList.add('visible');
+    box.classList.remove('playing');
+    ring.style.strokeDashoffset = circumference;
+    vid.currentTime = 0.001;
   });
 
   box.addEventListener('click', (e) => {
@@ -374,17 +403,27 @@ function buildCirclePlayer(msg) {
     const p = vid.currentTime / vid.duration;
     ring.style.strokeDashoffset = circumference * (1 - p);
   });
-  vid.addEventListener('ended', () => { ring.style.strokeDashoffset = circumference; });
 
   return box;
 }
 
 // ==================== УТИЛИТЫ ====================
 function pickMimeType(kind) {
-  const c = kind === 'video'
-    ? ['video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4']
-    : ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'];
-  for (const t of c) if (window.MediaRecorder && MediaRecorder.isTypeSupported(t)) return t;
+  let candidates;
+  if (kind === 'video') {
+    candidates = IS_IOS
+      ? ['video/mp4', 'video/webm;codecs=vp8,opus', 'video/webm']
+      : ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4'];
+  } else {
+    candidates = IS_IOS
+      ? ['audio/mp4', 'audio/aac', 'audio/webm;codecs=opus', 'audio/webm']
+      : ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'];
+  }
+  for (const t of candidates) {
+    try {
+      if (window.MediaRecorder && MediaRecorder.isTypeSupported(t)) return t;
+    } catch (e) {}
+  }
   return '';
 }
 
@@ -404,13 +443,11 @@ function formatLastSeen(ts) {
   const d = new Date(ts);
   const now = new Date();
   const diffMin = Math.floor((now - d) / 60000);
-
   if (diffMin < 1) return 'был(а) только что';
   if (diffMin < 60) return `был(а) ${diffMin} мин назад`;
 
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const msgDay = new Date(d); msgDay.setHours(0, 0, 0, 0);
-
   const time = d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
 
   if (msgDay.getTime() === today.getTime()) return `был(а) в ${time}`;
@@ -460,21 +497,32 @@ function showUploadingBubble(label) {
 // ==================== ГС ====================
 async function startVoiceRecording() {
   try {
-    voiceStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    voiceStream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+    });
     const mimeType = pickMimeType('audio');
-    voiceRecorder = mimeType ? new MediaRecorder(voiceStream, { mimeType }) : new MediaRecorder(voiceStream);
+    console.log('ГС mimeType:', mimeType, 'iOS:', IS_IOS);
+
+    const opts = mimeType ? { mimeType, audioBitsPerSecond: 64000 } : {};
+    voiceRecorder = new MediaRecorder(voiceStream, opts);
     voiceChunks = [];
 
-    voiceRecorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) voiceChunks.push(e.data); };
+    voiceRecorder.ondataavailable = (e) => {
+      if (e.data && e.data.size > 0) voiceChunks.push(e.data);
+    };
 
     voiceRecorder.onstop = async () => {
       if (voiceStream) { voiceStream.getTracks().forEach(t => t.stop()); voiceStream = null; }
-      const blob = new Blob(voiceChunks, { type: voiceRecorder.mimeType || 'audio/webm' });
+      await new Promise(r => setTimeout(r, 200));
+
+      const blob = new Blob(voiceChunks, { type: voiceRecorder.mimeType || 'audio/mp4' });
       const duration = Math.round((Date.now() - voiceStartTime) / 1000);
+      console.log('ГС blob:', blob.size, 'тип:', blob.type, 'длит:', duration);
+
       if (duration < MIN_VOICE_SECONDS) return alert('Минимум 1 сек');
       if (blob.size === 0) return alert('Пустая запись');
 
-      const ext = blob.type.includes('mp4') ? 'm4a' : 'webm';
+      const ext = blob.type.includes('mp4') || blob.type.includes('aac') ? 'm4a' : 'webm';
       const bubble = showUploadingBubble('Голосовое');
       try {
         const key = await uploadBlobWithProgress(blob, ext, (p) => bubble.setProgress(p));
@@ -487,7 +535,7 @@ async function startVoiceRecording() {
     };
 
     voiceStartTime = Date.now();
-    voiceRecorder.start(100);
+    voiceRecorder.start(IS_IOS ? 200 : 100);
     $recIndicator.classList.add('active');
     $btnVoice.classList.add('rec');
     voiceTimerInterval = setInterval(() => {
@@ -515,26 +563,41 @@ function stopVoiceRecording() {
 async function startCircleRecording() {
   try {
     circleStream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'user', width: 320, height: 320, frameRate: 20 },
+      video: { facingMode: 'user', width: { ideal: 320 }, height: { ideal: 320 }, frameRate: { ideal: 20, max: 24 } },
       audio: true,
     });
     $circleVideo.srcObject = circleStream;
     $circlePreview.classList.add('active');
 
     const mimeType = pickMimeType('video');
-    circleRecorder = mimeType
-      ? new MediaRecorder(circleStream, { mimeType, videoBitsPerSecond: 400000, audioBitsPerSecond: 64000 })
-      : new MediaRecorder(circleStream);
+    console.log('Кружок mimeType:', mimeType, 'iOS:', IS_IOS);
+
+    const opts = mimeType
+      ? { mimeType, videoBitsPerSecond: IS_IOS ? 250000 : 400000, audioBitsPerSecond: 64000 }
+      : {};
+
+    circleRecorder = new MediaRecorder(circleStream, opts);
     circleChunks = [];
 
-    circleRecorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) circleChunks.push(e.data); };
+    circleRecorder.ondataavailable = (e) => {
+      if (e.data && e.data.size > 0) circleChunks.push(e.data);
+    };
 
     circleRecorder.onstop = async () => {
       circleStream.getTracks().forEach(t => t.stop());
       $circlePreview.classList.remove('active');
       $circleVideo.srcObject = null;
-      const blob = new Blob(circleChunks, { type: circleRecorder.mimeType || 'video/webm' });
+      await new Promise(r => setTimeout(r, 300));
+
+      const blob = new Blob(circleChunks, { type: circleRecorder.mimeType || 'video/mp4' });
       const duration = Math.round((Date.now() - circleStartTime) / 1000);
+      console.log('Кружок blob:', (blob.size / 1024).toFixed(0), 'КБ, тип:', blob.type, 'длит:', duration);
+
+      if (blob.size === 0) {
+        alert('Пустая запись кружка');
+        return;
+      }
+
       const ext = blob.type.includes('mp4') ? 'mp4' : 'webm';
       const bubble = showUploadingBubble('Кружок');
       try {
@@ -548,7 +611,7 @@ async function startCircleRecording() {
     };
 
     circleStartTime = Date.now();
-    circleRecorder.start(100);
+    circleRecorder.start(IS_IOS ? 500 : 100);
     circleTimerInterval = setInterval(() => {
       const sec = Math.floor((Date.now() - circleStartTime) / 1000);
       $circleTimer.textContent = `${formatDuration(sec)} / ${formatDuration(MAX_CIRCLE_SECONDS)}`;

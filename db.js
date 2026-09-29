@@ -21,12 +21,9 @@ async function initDB() {
       deleted_for_sender BOOLEAN DEFAULT FALSE
     );
   `);
-
-  // Добавляем колонки, если таблица уже была создана раньше (миграция)
   await pool.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS read_at TIMESTAMPTZ;`);
   await pool.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS deleted_for_all BOOLEAN DEFAULT FALSE;`);
   await pool.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS deleted_for_sender BOOLEAN DEFAULT FALSE;`);
-
   console.log('✅ Таблица messages готова');
 }
 

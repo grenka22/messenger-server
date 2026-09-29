@@ -41,12 +41,29 @@ body { background: #FFF5EE; display: flex; flex-direction: column; height: 100dv
 @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 .msg.mine { align-self: flex-end; background: #4A90E2; color: #fff; border-bottom-right-radius: 4px; }
 .msg.theirs { align-self: flex-start; background: #fff; color: #333; border: 1px solid #F5D0B8; border-bottom-left-radius: 4px; }
+
+/* Убираем фон и padding у сообщений с кружком */
+.msg.circle-wrapper,
 .msg:has(.circle-msg) {
   background: transparent !important;
   padding: 0 !important;
   border: none !important;
   max-width: none;
 }
+.msg.circle-wrapper .meta,
+.msg:has(.circle-msg) .meta {
+  color: #5A3A2A;
+  margin-top: 6px;
+  justify-content: center;
+}
+.msg.circle-wrapper .time,
+.msg:has(.circle-msg) .time { color: #5A3A2A; opacity: 0.7; }
+.msg.circle-wrapper .read-check,
+.msg:has(.circle-msg) .read-check { color: rgba(90,58,42,0.5); }
+.msg.circle-wrapper .read-check.read,
+.msg:has(.circle-msg) .read-check.read { color: #4A90E2; }
+.msg.circle-wrapper .msg-menu,
+.msg:has(.circle-msg) .msg-menu { color: rgba(90,58,42,0.5); }
 
 /* ===== Мета ===== */
 .meta { display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin-top: 3px; }
@@ -72,10 +89,49 @@ body { background: #FFF5EE; display: flex; flex-direction: column; height: 100dv
 .msg.theirs .voice-msg .play-btn { background: rgba(0,0,0,0.08); }
 
 /* ===== Кружок с круговой обводкой ===== */
-.circle-msg { position: relative; width: 180px; height: 180px; margin: 2px 0; overflow: visible; }
-.circle-msg video { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; display: block; background: #000; cursor: pointer; }
-.circle-ring { position: absolute; top: 0; left: 0; pointer-events: none; width: 180px; height: 180px; }
+.circle-msg {
+  position: relative;
+  width: 180px;
+  height: 180px;
+  margin: 2px 0;
+  overflow: visible;
+  transition: transform 0.25s ease;
+  transform-origin: center;
+}
+.circle-msg.playing {
+  transform: scale(1.18);
+  z-index: 5;
+}
+.circle-msg video {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+  display: block;
+  background: #000;
+  cursor: pointer;
+}
+.circle-ring {
+  position: absolute;
+  top: 0; left: 0;
+  pointer-events: none;
+  width: 180px;
+  height: 180px;
+}
 .circle-ring-progress { transition: stroke-dashoffset 0.15s linear; }
+
+.circle-play-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.35);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  pointer-events: none;
+}
+.circle-play-overlay.visible { opacity: 1; }
 
 /* ===== Панель ввода ===== */
 .composer { background: #FFE4D1; border-top: 1px solid #F5D0B8; padding: 8px 10px; padding-bottom: max(8px, env(safe-area-inset-bottom)); display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
@@ -129,19 +185,3 @@ body { background: #FFF5EE; display: flex; flex-direction: column; height: 100dv
 .upload-pct { font-size: 11px; margin-top: 4px; text-align: right; opacity: 0.9; }
 .msg.theirs .upload-bar { background: rgba(0,0,0,0.1); }
 .msg.theirs .upload-fill { background: #4A90E2; }
-
-/* Убираем фон у сообщений-кружков */
-.msg.circle-wrapper {
-  background: transparent !important;
-  padding: 0 !important;
-  border: none !important;
-  max-width: none;
-}
-.msg.circle-wrapper .meta {
-  color: #5A3A2A;
-  margin-top: 6px;
-}
-.msg.circle-wrapper .time { color: #5A3A2A; opacity: 0.7; }
-.msg.circle-wrapper .read-check { color: rgba(90,58,42,0.5); }
-.msg.circle-wrapper .read-check.read { color: #4A90E2; }
-.msg.circle-wrapper .msg-menu { color: rgba(90,58,42,0.5); }
