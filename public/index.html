@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta name="theme-color" content="#FFE4D1">
   <title>Мессенджер</title>
-  <link rel="stylesheet" href="style.css?v=7">
+  <link rel="stylesheet" href="style.css?v=8">
 </head>
 <body>
 
@@ -79,7 +79,11 @@
         <button class="status-item" data-emoji="💔" data-text="Очень по тебе скучаю"><div class="status-emoji">💔</div><div class="status-text">Очень по тебе скучаю</div></button>
         <button class="status-item" data-emoji="😢" data-text="Мне плохо"><div class="status-emoji">😢</div><div class="status-text">Мне плохо</div></button>
       </div>
-      <button class="save-btn" id="clearStatus" style="background:#aaa;">Убрать статус</button>
+      <div id="recentStatusesBlock" style="display:none;">
+        <p class="modal-hint" style="margin-top:16px;">Недавние</p>
+        <div class="recent-statuses" id="recentStatuses"></div>
+      </div>
+      <button class="save-btn" id="clearStatus" style="background:#aaa; margin-top:12px;">Убрать статус</button>
     </div>
   </div>
 
@@ -111,6 +115,6 @@
     <div class="dot"></div><span id="recTime">0:00</span><span class="hint">отпустите для отправки</span>
   </div>
 
-  <script src="app.js?v=7"></script>
+  <script src="app.js?v=8"></script>
 </body>
 </html>

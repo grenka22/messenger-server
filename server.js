@@ -25,7 +25,6 @@ const userStates = {};
 
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Upload to B2
 app.put('/upload/:key(*)', async (req, res) => {
   try {
     const key = req.params.key;
@@ -56,7 +55,6 @@ app.put('/upload/:key(*)', async (req, res) => {
   }
 });
 
-// Get media (proxied through server)
 app.get('/media/:key(*)', async (req, res) => {
   try {
     const key = req.params.key;
@@ -87,6 +85,7 @@ wss.on('connection', async (ws) => {
       avatar: userStates[name].avatar,
       last_seen: userStates[name].last_seen,
       status: userStates[name].status || null,
+      typing: userStates[name].typing || false,
     }));
   }
 
@@ -100,6 +99,7 @@ wss.on('connection', async (ws) => {
           last_seen: Date.now(),
           avatar: msg.avatar || userStates[msg.user]?.avatar || null,
           status: msg.status !== undefined ? msg.status : userStates[msg.user]?.status || null,
+          typing: msg.typing || false,
         };
         const payload = JSON.stringify({
           type: 'presence', user: msg.user,
@@ -107,6 +107,7 @@ wss.on('connection', async (ws) => {
           avatar: userStates[msg.user].avatar,
           last_seen: userStates[msg.user].last_seen,
           status: userStates[msg.user].status,
+          typing: userStates[msg.user].typing,
         });
         for (const c of wss.clients) if (c.readyState === WebSocket.OPEN) c.send(payload);
         return;
@@ -150,10 +151,12 @@ wss.on('connection', async (ws) => {
       if (userStates[name].online) {
         userStates[name].online = false;
         userStates[name].last_seen = now;
+        userStates[name].typing = false;
         const payload = JSON.stringify({
           type: 'presence', user: name,
           online: false, avatar: userStates[name].avatar,
           last_seen: now, status: userStates[name].status,
+          typing: false,
         });
         for (const c of wss.clients) if (c.readyState === WebSocket.OPEN) c.send(payload);
       }

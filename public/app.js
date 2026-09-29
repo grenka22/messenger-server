@@ -57,6 +57,8 @@ const $emojiCurrent = document.getElementById('emojiCurrent');
 const $emojiScroll = document.getElementById('emojiScroll');
 const $emojiDesc = document.getElementById('emojiDesc');
 const $saveEmoji = document.getElementById('saveEmoji');
+const $recentStatusesBlock = document.getElementById('recentStatusesBlock');
+const $recentStatuses = document.getElementById('recentStatuses');
 const $circlePreview = document.getElementById('circlePreview');
 const $circleVideo = document.getElementById('circleVideo');
 const $circleTimer = document.getElementById('circleTimer');
@@ -73,6 +75,9 @@ let profile = { email: '' };
 let myStatus = null;
 let peerStatusData = null;
 let selectedEmoji = '🙂';
+let typingTimer = null;
+let isTyping = false;
+let peerIsTyping = false;
 
 let voiceRecorder = null, voiceChunks = [], voiceStartTime = 0, voiceTimerInterval = null, voiceStream = null;
 let circleStream = null, circleRecorder = null, circleChunks = [], circleStartTime = 0, circleTimerInterval = null;
@@ -103,13 +108,11 @@ function initChat() {
   $peerStatus.textContent = 'не в сети';
   $peerStatus.className = 'peer-status offline';
 
-  // Свой статус из localStorage
   try {
     const s = localStorage.getItem(`status_${myName}`);
     if (s) myStatus = JSON.parse(s);
   } catch (e) {}
 
-  // Статус собеседника из кэша
   try {
     const ps = localStorage.getItem(`peer_status_${peer}`);
     if (ps) { peerStatusData = JSON.parse(ps); setTimeout(updatePeerStatusIcon, 100); }
@@ -161,30 +164,52 @@ function connect() {
   });
 }
 
-function sendPresence() {
+function sendPresence(extra = {}) {
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({
-      type: 'presence', user: myName, online: true,
+      type: 'presence',
+      user: myName,
+      online: true,
       avatar: localStorage.getItem(myAvatarKey()) || null,
       status: myStatus,
+      typing: isTyping,
+      ...extra,
     }));
   }
 }
 
 function handlePresence(msg) {
   const peer = USERS[myName]?.peer;
-  if (msg.user === peer) {
-    if (msg.online) { $peerStatus.textContent = 'в сети'; $peerStatus.className = 'peer-status online'; }
-    else { $peerStatus.textContent = formatLastSeen(msg.last_seen); $peerStatus.className = 'peer-status offline'; }
-    if (msg.avatar) { localStorage.setItem(peerAvatarKey(peer), msg.avatar); updatePeerAvatar(); }
-    if (msg.status !== undefined) {
-      peerStatusData = msg.status;
-      if (msg.status) localStorage.setItem(`peer_status_${peer}`, JSON.stringify(msg.status));
-      else localStorage.removeItem(`peer_status_${peer}`);
-      updatePeerStatusIcon();
-    }
-    if (msg.online) sendPresence();
+  if (msg.user !== peer) return;
+
+  if (msg.avatar) {
+    localStorage.setItem(peerAvatarKey(peer), msg.avatar);
+    updatePeerAvatar();
   }
+
+  if (msg.status !== undefined) {
+    peerStatusData = msg.status;
+    if (msg.status) localStorage.setItem(`peer_status_${peer}`, JSON.stringify(msg.status));
+    else localStorage.removeItem(`peer_status_${peer}`);
+    updatePeerStatusIcon();
+  }
+
+  peerIsTyping = !!msg.typing;
+
+  if (msg.online) {
+    if (peerIsTyping) {
+      $peerStatus.textContent = 'печатает…';
+      $peerStatus.className = 'peer-status typing';
+    } else {
+      $peerStatus.textContent = 'в сети';
+      $peerStatus.className = 'peer-status online';
+    }
+  } else {
+    $peerStatus.textContent = formatLastSeen(msg.last_seen);
+    $peerStatus.className = 'peer-status offline';
+  }
+
+  if (msg.online) sendPresence();
 }
 
 function handleRead(msg) {
@@ -204,6 +229,11 @@ function handleDelete(msg) {
 function sendText() {
   const text = $input.value.trim();
   if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
+
+  isTyping = false;
+  clearTimeout(typingTimer);
+  sendPresence();
+
   ws.send(JSON.stringify({ type: 'text', sender: myName, text }));
   $input.value = '';
   $input.focus();
@@ -614,12 +644,46 @@ async function uploadAvatar(file) {
 // ==================== СТАТУСЫ ====================
 function setMyStatus(emoji, text) {
   myStatus = emoji ? { emoji, text: text || '' } : null;
-  if (myStatus) localStorage.setItem(`status_${myName}`, JSON.stringify(myStatus));
-  else localStorage.removeItem(`status_${myName}`);
+  if (myStatus) {
+    localStorage.setItem(`status_${myName}`, JSON.stringify(myStatus));
+    if (myStatus.emoji) addToStatusHistory(myStatus);
+  } else {
+    localStorage.removeItem(`status_${myName}`);
+  }
   if (ws && ws.readyState === WebSocket.OPEN) sendPresence();
   closeStatusModal();
   closeEmojiModal();
 }
+
+function getStatusHistory() {
+  try { return JSON.parse(localStorage.getItem(`status_history_${myName}`) || '[]'); }
+  catch (e) { return []; }
+}
+
+function addToStatusHistory(status) {
+  if (!status || !status.emoji) return;
+  const history = getStatusHistory();
+  const filtered = history.filter(s => !(s.emoji === status.emoji && s.text === status.text));
+  filtered.unshift(status);
+  const limited = filtered.slice(0, 10);
+  localStorage.setItem(`status_history_${myName}`, JSON.stringify(limited));
+  renderStatusHistory();
+}
+
+function renderStatusHistory() {
+  const history = getStatusHistory();
+  if (history.length === 0) { $recentStatusesBlock.style.display = 'none'; return; }
+  $recentStatusesBlock.style.display = 'block';
+  $recentStatuses.innerHTML = '';
+  history.forEach(s => {
+    const b = document.createElement('button');
+    b.className = 'recent-item';
+    b.innerHTML = `<span class="recent-emoji">${s.emoji}</span><span class="recent-text">${s.text}</span>`;
+    b.onclick = () => setMyStatus(s.emoji, s.text);
+    $recentStatuses.appendChild(b);
+  });
+}
+
 function updatePeerStatusIcon() {
   if (peerStatusData && peerStatusData.emoji) {
     $peerStatusIcon.hidden = false;
@@ -635,7 +699,7 @@ function showStatusTooltip() {
   $statusTooltip.classList.add('visible');
   setTimeout(() => $statusTooltip.classList.remove('visible'), 3000);
 }
-function openStatusModal() { $statusModal.classList.add('active'); }
+function openStatusModal() { renderStatusHistory(); $statusModal.classList.add('active'); }
 function closeStatusModal() { $statusModal.classList.remove('active'); }
 function openEmojiModal() {
   $emojiScroll.innerHTML = '';
@@ -657,9 +721,27 @@ function openEmojiModal() {
 }
 function closeEmojiModal() { $emojiModal.classList.remove('active'); }
 
+// ==================== TYPING ====================
+function onTyping() {
+  if (!isTyping) {
+    isTyping = true;
+    sendPresence();
+  }
+  clearTimeout(typingTimer);
+  typingTimer = setTimeout(() => {
+    isTyping = false;
+    sendPresence();
+  }, 2000);
+}
+
 // ==================== СОБЫТИЯ ====================
 $btnSend.addEventListener('click', sendText);
-$input.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendText(); });
+$input.addEventListener('input', onTyping);
+$input.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { sendText(); }
+  else { onTyping(); }
+});
+
 $btnAttach.addEventListener('click', () => $fileInput.click());
 $fileInput.addEventListener('change', (e) => {
   Array.from(e.target.files).forEach(sendAttachment);
@@ -673,6 +755,7 @@ $saveEmoji.addEventListener('click', () => {
   if (!d) return alert('Напишите описание');
   setMyStatus(selectedEmoji, d);
 });
+
 $peerStatusIcon.addEventListener('click', showStatusTooltip);
 $btnProfile.addEventListener('click', openProfile);
 $closeProfile.addEventListener('click', closeProfile);
