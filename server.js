@@ -5,13 +5,12 @@ const WebSocket = require('ws');
 const path = require('path');
 const { S3Client, PutObjectCommand, GetObjectCommand } = require('@aws-sdk/client-s3');
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
-const { initDB, saveMessage, getHistory } = require('./db');
+const { initDB, saveMessage, getHistory, markRead, deleteMessage } = require('./db');
 
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-// === Backblaze B2 (S3-совместимый) ===
 const s3 = new S3Client({
   region: process.env.B2_REGION,
   endpoint: process.env.B2_ENDPOINT,
@@ -24,15 +23,13 @@ const s3 = new S3Client({
 
 const BUCKET = process.env.B2_BUCKET;
 
-// === Раздача статики ===
 app.use(express.static(path.join(__dirname, 'public')));
 
-// === Загрузка файла в B2 (надёжный сборщик тела) ===
+// === Загрузка в B2 ===
 app.put('/upload/:key(*)', async (req, res) => {
   try {
     const key = req.params.key;
     if (!key) return res.status(400).json({ error: 'No key' });
-
     const chunks = [];
     let total = 0;
     const MAX = 25 * 1024 * 1024;
@@ -61,7 +58,7 @@ app.put('/upload/:key(*)', async (req, res) => {
       ContentType: req.headers['content-type'] || 'application/octet-stream',
     }));
 
-    console.log(`✅ Загружено в B2: ${key} (${body.length} байт)`);
+    console.log(`✅ B2: ${key} (${body.length} байт)`);
     res.json({ ok: true, key });
   } catch (e) {
     console.error('Upload error:', e);
@@ -69,13 +66,12 @@ app.put('/upload/:key(*)', async (req, res) => {
   }
 });
 
-// === Отдача файла из B2 ===
+// === Отдача из B2 ===
 app.get('/media/:key(*)', async (req, res) => {
   try {
     const key = req.params.key;
     const url = await getSignedUrl(s3, new GetObjectCommand({
-      Bucket: BUCKET,
-      Key: key,
+      Bucket: BUCKET, Key: key,
     }), { expiresIn: 3600 });
     res.redirect(url);
   } catch (e) {
@@ -84,9 +80,9 @@ app.get('/media/:key(*)', async (req, res) => {
   }
 });
 
-// === WebSocket чат ===
+// === WebSocket ===
 wss.on('connection', async (ws) => {
-  console.log('🔌 Новый клиент подключился');
+  console.log('🔌 Клиент подключился');
 
   try {
     const history = await getHistory(200);
@@ -99,7 +95,7 @@ wss.on('connection', async (ws) => {
     try {
       const msg = JSON.parse(data);
 
-      // Presence — просто рассылаем всем
+      // Presence
       if (msg.type === 'presence') {
         const payload = JSON.stringify(msg);
         for (const client of wss.clients) {
@@ -108,6 +104,29 @@ wss.on('connection', async (ws) => {
         return;
       }
 
+      // Метка прочтения
+      if (msg.type === 'read') {
+        if (msg.ids && msg.ids.length > 0) {
+          await markRead(msg.ids);
+        }
+        const payload = JSON.stringify(msg);
+        for (const client of wss.clients) {
+          if (client.readyState === WebSocket.OPEN) client.send(payload);
+        }
+        return;
+      }
+
+      // Удаление сообщения
+      if (msg.type === 'delete') {
+        await deleteMessage(msg.id, msg.forAll);
+        const payload = JSON.stringify(msg);
+        for (const client of wss.clients) {
+          if (client.readyState === WebSocket.OPEN) client.send(payload);
+        }
+        return;
+      }
+
+      // Текст / голосовое / видео
       if (msg.type === 'text' || msg.type === 'voice' || msg.type === 'video') {
         const saved = await saveMessage(msg);
         const outgoing = {
@@ -119,6 +138,7 @@ wss.on('connection', async (ws) => {
           mime: msg.mime,
           duration: msg.duration,
           timestamp: saved.created_at,
+          read_at: null,
         };
         const payload = JSON.stringify(outgoing);
         for (const client of wss.clients) {
@@ -136,9 +156,7 @@ wss.on('connection', async (ws) => {
 const PORT = process.env.PORT || 3000;
 
 initDB()
-  .then(() => {
-    server.listen(PORT, () => console.log(`🚀 Сервер запущен на порту ${PORT}`));
-  })
+  .then(() => server.listen(PORT, () => console.log(`🚀 Сервер на порту ${PORT}`)))
   .catch((e) => {
     console.error('❌ Ошибка инициализации БД:', e);
     process.exit(1);
