@@ -409,22 +409,11 @@ function buildCirclePlayer(msg) {
 
 // ==================== УТИЛИТЫ ====================
 function pickMimeType(kind) {
-  let candidates;
   if (kind === 'video') {
-    candidates = IS_IOS
-      ? ['video/mp4', 'video/webm;codecs=vp8,opus', 'video/webm']
-      : ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4'];
-  } else {
-    candidates = IS_IOS
-      ? ['audio/mp4', 'audio/aac', 'audio/webm;codecs=opus', 'audio/webm']
-      : ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'];
+  candidates = IS_IOS
+    ? ['video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4']  // <-- webm первым
+    : ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4'];
   }
-  for (const t of candidates) {
-    try {
-      if (window.MediaRecorder && MediaRecorder.isTypeSupported(t)) return t;
-    } catch (e) {}
-  }
-  return '';
 }
 
 function formatDuration(sec) {
@@ -573,7 +562,7 @@ async function startCircleRecording() {
     console.log('Кружок mimeType:', mimeType, 'iOS:', IS_IOS);
 
     const opts = mimeType
-      ? { mimeType, videoBitsPerSecond: IS_IOS ? 250000 : 400000, audioBitsPerSecond: 64000 }
+      ? { mimeType, videoBitsPerSecond: 400000, audioBitsPerSecond: 64000 }
       : {};
 
     circleRecorder = new MediaRecorder(circleStream, opts);
