@@ -1,0 +1,45 @@
+ <!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#FFE4D1">
+  <title>Мессенджер</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <div class="header">
+    <div class="title">Мессенджер</div>
+    <div class="status" id="status">Подключение…</div>
+  </div>
+
+  <div class="messages" id="messages"></div>
+
+  <div class="composer">
+    <button class="icon-only" id="btnCircle" title="Кружок">📹</button>
+    <input type="text" id="textInput" placeholder="Сообщение…" autocomplete="off">
+    <button id="btnVoice" title="Голосовое">🎤</button>
+    <button id="btnSend" title="Отправить">➤</button>
+  </div>
+
+  <!-- Оверлей для записи кружка -->
+  <div class="circle-preview" id="circlePreview">
+    <video id="circleVideo" autoplay muted playsinline></video>
+    <div class="timer" id="circleTimer">0:00 / 1:00</div>
+    <div class="controls">
+      <button class="cancel" id="circleCancel">✕</button>
+      <button class="send" id="circleSend">➤</button>
+    </div>
+  </div>
+
+  <!-- Индикатор записи голосового -->
+  <div class="rec-indicator" id="recIndicator">
+    <div class="dot"></div>
+    <span id="recTime">0:00</span>
+    <span class="hint">отпустите для отправки</span>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
