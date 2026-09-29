@@ -9,17 +9,39 @@
 </head>
 <body>
 
-  <div class="header">
-    <div class="title">Мессенджер</div>
-    <div class="header-right">
-      <div class="status" id="status">Подключение…</div>
-      <button class="profile-btn" id="btnProfile" title="Профиль">
-        <img id="headerAvatar" src="" alt="">
-        <svg id="headerAvatarPlaceholder" viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
-          <path d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10Zm0 2c-4.42 0-8 2.24-8 5v1h16v-1c0-2.76-3.58-5-8-5Z"/>
-        </svg>
+  <!-- Экран выбора пользователя (показывается один раз) -->
+  <div class="login-screen" id="loginScreen">
+    <div class="login-card">
+      <h1>Кто вы?</h1>
+      <p>Выберите себя, чтобы начать общение</p>
+      <button class="user-btn" data-user="Тимофей">
+        <div class="user-avatar">Т</div>
+        <span>Тимофей</span>
+      </button>
+      <button class="user-btn" data-user="Аня">
+        <div class="user-avatar">А</div>
+        <span>Аня</span>
       </button>
     </div>
+  </div>
+
+  <!-- Шапка с собеседником -->
+  <div class="header">
+    <div class="peer-avatar" id="peerAvatar">
+      <svg viewBox="0 0 24 24" width="26" height="26" fill="#C9B0A0">
+        <path d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10Zm0 2c-4.42 0-8 2.24-8 5v1h16v-1c0-2.76-3.58-5-8-5Z"/>
+      </svg>
+    </div>
+    <div class="peer-info">
+      <div class="peer-name" id="peerName">Собеседник</div>
+      <div class="peer-status" id="peerStatus">офлайн</div>
+    </div>
+    <button class="profile-btn" id="btnProfile" title="Профиль">
+      <img id="headerAvatar" src="" alt="">
+      <svg id="headerAvatarPlaceholder" viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+        <path d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10Zm0 2c-4.42 0-8 2.24-8 5v1h16v-1c0-2.76-3.58-5-8-5Z"/>
+      </svg>
+    </button>
   </div>
 
   <div class="messages" id="messages"></div>
@@ -52,12 +74,12 @@
       </div>
 
       <div class="avatar-section">
-        <div class="avatar-preview" id="avatarPreview">
+        <div class="avatar-preview">
           <img id="avatarImg" src="" alt="">
           <svg id="avatarPlaceholder" viewBox="0 0 24 24" width="60" height="60" fill="#C9B0A0">
             <path d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10Zm0 2c-4.42 0-8 2.24-8 5v1h16v-1c0-2.76-3.58-5-8-5Z"/>
           </svg>
-          <label for="avatarInput" class="avatar-edit" title="Изменить аватар">
+          <label for="avatarInput" class="avatar-edit">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="#fff">
               <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25ZM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83Z"/>
             </svg>
@@ -80,7 +102,6 @@
     </div>
   </div>
 
-  <!-- Оверлей для записи кружка -->
   <div class="circle-preview" id="circlePreview">
     <video id="circleVideo" autoplay muted playsinline></video>
     <div class="timer" id="circleTimer">0:00 / 1:00</div>
@@ -90,7 +111,6 @@
     </div>
   </div>
 
-  <!-- Индикатор записи голосового -->
   <div class="rec-indicator" id="recIndicator">
     <div class="dot"></div>
     <span id="recTime">0:00</span>
