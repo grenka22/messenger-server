@@ -5,7 +5,6 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false }
 });
 
-// Инициализация таблицы при старте
 async function initDB() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS messages (
