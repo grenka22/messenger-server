@@ -644,14 +644,15 @@ function sendAttachment(file) {
 
 // ==================== УТИЛИТЫ ====================
 function pickMimeType(kind) {
-  let c;
-  if (kind === 'video') c = IS_IOS
+  const candidates = kind === 'video'
     ? ['video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4']
-    : ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4'];
-  else c = IS_IOS
-    ? ['audio/mp4', 'audio/aac', 'audio/webm;codecs=opus', 'audio/webm']
-    : ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'];
-  for (const t of c) { try { if (MediaRecorder.isTypeSupported(t)) return t; } catch (e) {} }
+    : ['audio/mp4', 'audio/aac', 'audio/webm;codecs=opus', 'audio/webm'];
+
+  for (const t of candidates) {
+    try {
+      if (MediaRecorder.isTypeSupported(t)) return t;
+    } catch (e) {}
+  }
   return '';
 }
 function formatDuration(s) { const m = Math.floor(s/60); const x = Math.floor(s%60).toString().padStart(2,'0'); return `${m}:${x}`; }
@@ -700,17 +701,31 @@ async function startVoiceRecording() {
   try {
     voiceStream = await navigator.mediaDevices.getUserMedia({ audio: true });
     const mt = pickMimeType('audio');
+    // На iPhone Safari лучше всего писать сразу в mp4, если возможно
     voiceRecorder = new MediaRecorder(voiceStream, mt ? { mimeType: mt, audioBitsPerSecond: 64000 } : {});
     voiceChunks = [];
-    voiceRecorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) voiceChunks.push(e.data); };
+
+    voiceRecorder.ondataavailable = (e) => {
+      if (e.data && e.data.size > 0) voiceChunks.push(e.data);
+    };
+
     voiceRecorder.onstop = async () => {
       if (voiceStream) { voiceStream.getTracks().forEach(t => t.stop()); voiceStream = null; }
-      await new Promise(r => setTimeout(r, 200));
+      
+      // ВАЖНО: даём Safari время завершить буферизацию, иначе будет 0 секунд [citation:2][citation:7]
+      await new Promise(r => setTimeout(r, 300));
+
       const blob = new Blob(voiceChunks, { type: voiceRecorder.mimeType || 'audio/mp4' });
       const dur = Math.round((Date.now() - voiceStartTime) / 1000);
+      
+      // Если запись всё равно пустая, пробуем ещё раз
+      if (blob.size === 0) {
+        console.warn('Пустая запись, пропускаем');
+        return alert('Пустая запись, попробуйте снова');
+      }
       if (dur < MIN_VOICE_SECONDS) return alert('Минимум 1 сек');
-      if (blob.size === 0) return alert('Пустая запись');
-      const ext = blob.type.includes('mp4') || blob.type.includes('aac') ? 'm4a' : 'webm';
+
+      const ext = blob.type.includes('mp4') ? 'm4a' : 'webm';
       const b = showUploadingBubble('Голосовое');
       try {
         const key = await uploadBlobWithProgress(blob, ext, (p) => b.setProgress(p));
@@ -718,8 +733,11 @@ async function startVoiceRecording() {
         ws.send(JSON.stringify({ type: 'voice', sender: myName, mediaKey: key, mime: blob.type, duration: dur }));
       } catch (e) { b.remove(); alert('Ошибка: ' + e.message); }
     };
+
     voiceStartTime = Date.now();
-    voiceRecorder.start(IS_IOS ? 200 : 100);
+    // Ключевой момент: на iOS даём больше времени на буферизацию (500мс)
+    voiceRecorder.start(IS_IOS ? 500 : 100);
+    
     $recIndicator.classList.add('active');
     $btnVoice.classList.add('rec');
     voiceTimerInterval = setInterval(() => {
