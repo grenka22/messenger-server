@@ -68,18 +68,27 @@ body { background: #FFF5EE; display: flex; flex-direction: column; height: 100dv
 .msg-popup button:hover { background: #FFE4D1; }
 
 /* Голосовое */
-.voice-msg { display: flex; align-items: center; gap: 8px; min-width: 220px; }
+.voice-msg { display: flex; align-items: center; gap: 6px; min-width: 260px; }
 .voice-msg .play-btn { width: 34px; height: 34px; border-radius: 50%; background: rgba(255,255,255,0.3); border: none; color: inherit; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 13px; flex-shrink: 0; }
-.voice-msg .wave { flex: 1; height: 28px; cursor: pointer; }
+.voice-msg .wave { flex: 1; height: 28px; cursor: pointer; min-width: 80px; }
 .voice-msg .dur { font-size: 12px; opacity: 0.75; min-width: 30px; text-align: right; }
+.voice-msg .speed-btn { background: rgba(255,255,255,0.25); border: none; color: inherit; font-size: 11px; font-weight: 600; padding: 3px 7px; border-radius: 10px; cursor: pointer; flex-shrink: 0; }
+.voice-msg .speed-btn:active { transform: scale(0.95); }
+.voice-msg .close-btn-voice { background: transparent; border: none; color: inherit; font-size: 14px; cursor: pointer; opacity: 0.7; padding: 4px; flex-shrink: 0; line-height: 1; }
+.voice-msg .close-btn-voice:hover { opacity: 1; }
 .msg.theirs .voice-msg .play-btn { background: rgba(0,0,0,0.08); }
+.msg.theirs .voice-msg .speed-btn { background: rgba(0,0,0,0.06); }
 
 /* Кружок */
 .circle-msg { position: relative; width: 180px; height: 180px; margin: 2px 0; overflow: visible; transition: transform 0.25s ease; transform-origin: center; }
 .circle-msg.playing { transform: scale(1.18); z-index: 5; }
 .circle-msg video { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; display: block; background: #000; cursor: pointer; }
-.circle-ring { position: absolute; top: 0; left: 0; pointer-events: none; width: 180px; height: 180px; }
-.circle-ring-progress { transition: stroke-dashoffset 0.15s linear; }
+
+/* Полоса сверху кружка */
+.circle-top-bar { position: absolute; top: -12px; left: 10px; right: 10px; height: 3px; background: rgba(0,0,0,0.15); border-radius: 2px; cursor: pointer; z-index: 6; }
+.circle-top-fill { height: 100%; width: 0%; background: #4A90E2; border-radius: 2px; transition: width 0.1s linear; }
+.circle-top-thumb { position: absolute; top: 50%; left: 0%; width: 10px; height: 10px; border-radius: 50%; background: #4A90E2; transform: translate(-50%, -50%); transition: left 0.1s linear; pointer-events: none; box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
+
 .circle-play-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; border-radius: 50%; background: rgba(0,0,0,0.35); opacity: 0; transition: opacity 0.15s ease; pointer-events: none; }
 .circle-play-overlay.visible { opacity: 1; }
 
@@ -137,7 +146,7 @@ body { background: #FFF5EE; display: flex; flex-direction: column; height: 100dv
 .status-tooltip { position: fixed; background: rgba(0,0,0,0.85); color: #fff; padding: 8px 14px; border-radius: 12px; font-size: 13px; z-index: 400; pointer-events: none; opacity: 0; transition: opacity 0.15s; max-width: 240px; text-align: center; }
 .status-tooltip.visible { opacity: 1; }
 
-/* Кружок запись */
+/* Запись кружка */
 .circle-preview { position: fixed; inset: 0; background: rgba(0,0,0,0.9); display: none; align-items: center; justify-content: center; flex-direction: column; z-index: 100; }
 .circle-preview.active { display: flex; }
 .circle-preview video { width: 70vw; height: 70vw; max-width: 320px; max-height: 320px; border-radius: 50%; object-fit: cover; transform: scaleX(-1); }

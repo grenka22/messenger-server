@@ -102,6 +102,9 @@ function showLogin() {
 }
 
 function initChat() {
+  // Удаляем старые ключи от предыдущих версий
+  ['profile_avatar', 'profile_email', 'status', 'my_name'].forEach(k => localStorage.removeItem(k));
+
   const peer = USERS[myName]?.peer;
   if (!peer) return showLogin();
   $peerName.textContent = peer;
@@ -111,12 +114,14 @@ function initChat() {
   try {
     const s = localStorage.getItem(`status_${myName}`);
     if (s) myStatus = JSON.parse(s);
-  } catch (e) {}
+    else myStatus = null;
+  } catch (e) { myStatus = null; }
 
   try {
     const ps = localStorage.getItem(`peer_status_${peer}`);
     if (ps) { peerStatusData = JSON.parse(ps); setTimeout(updatePeerStatusIcon, 100); }
-  } catch (e) {}
+    else { peerStatusData = null; setTimeout(updatePeerStatusIcon, 100); }
+  } catch (e) { peerStatusData = null; }
 
   const myAv = localStorage.getItem(myAvatarKey());
   if (myAv) {
@@ -125,6 +130,7 @@ function initChat() {
     $headerAvatar.classList.add('loaded');
   } else {
     $headerAvatar.classList.remove('loaded');
+    $headerAvatar.src = '';
   }
 
   updatePeerAvatar();
@@ -291,12 +297,20 @@ function buildVoicePlayer(msg, isMine) {
   const mediaUrl = `/media/${encodeURIComponent(msg.mediaKey)}`;
   const box = document.createElement('div');
   box.className = 'voice-msg';
-  box.innerHTML = `<button class="play-btn">▶</button><canvas class="wave" width="180" height="28"></canvas><span class="dur">${formatDuration(msg.duration || 0)}</span>`;
+  box.innerHTML = `
+    <button class="play-btn">▶</button>
+    <canvas class="wave" width="180" height="28"></canvas>
+    <span class="dur">${formatDuration(msg.duration || 0)}</span>
+    <button class="speed-btn">1×</button>
+    <button class="close-btn-voice">✕</button>
+  `;
   const audio = new Audio(mediaUrl);
   audio.preload = 'metadata';
   const btn = box.querySelector('.play-btn');
   const canvas = box.querySelector('.wave');
   const durEl = box.querySelector('.dur');
+  const speedBtn = box.querySelector('.speed-btn');
+  const closeBtn = box.querySelector('.close-btn-voice');
   const ctx = canvas.getContext('2d');
   const cMain = isMine ? 'rgba(255,255,255,0.85)' : 'rgba(74,144,226,0.7)';
   const cBg = isMine ? 'rgba(255,255,255,0.35)' : 'rgba(74,144,226,0.25)';
@@ -316,10 +330,27 @@ function buildVoicePlayer(msg, isMine) {
     const r = canvas.getBoundingClientRect();
     audio.currentTime = ((e.clientX - r.left) / r.width) * audio.duration;
   });
+
   btn.addEventListener('click', () => {
     if (audio.paused) { audio.play(); btn.textContent = '⏸'; }
     else { audio.pause(); btn.textContent = '▶'; }
   });
+
+  speedBtn.addEventListener('click', () => {
+    if (audio.playbackRate === 1) { audio.playbackRate = 2; speedBtn.textContent = '2×'; }
+    else { audio.playbackRate = 1; speedBtn.textContent = '1×'; }
+  });
+
+  closeBtn.addEventListener('click', () => {
+    audio.pause();
+    audio.currentTime = 0;
+    btn.textContent = '▶';
+    speedBtn.textContent = '1×';
+    audio.playbackRate = 1;
+    if (peaks) drawWaveform(ctx, canvas.width, canvas.height, peaks, cMain, peaks, 0);
+    durEl.textContent = formatDuration(msg.duration || 0);
+  });
+
   audio.addEventListener('ended', () => {
     btn.textContent = '▶';
     if (peaks) drawWaveform(ctx, canvas.width, canvas.height, peaks, cMain, peaks, 0);
@@ -339,45 +370,65 @@ function buildVoicePlayer(msg, isMine) {
 function buildCirclePlayer(msg) {
   const box = document.createElement('div');
   box.className = 'circle-msg';
-  const size = 180, radius = size / 2 - 3;
-  const circ = 2 * Math.PI * radius;
+
   box.innerHTML = `
+    <div class="circle-top-bar">
+      <div class="circle-top-fill"></div>
+      <div class="circle-top-thumb"></div>
+    </div>
     <video src="/media/${encodeURIComponent(msg.mediaKey)}" playsinline muted preload="metadata"></video>
-    <svg class="circle-ring" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
-      <circle cx="${size/2}" cy="${size/2}" r="${radius}" fill="none" stroke="rgba(255,255,255,0.35)" stroke-width="4"/>
-      <circle class="circle-ring-progress" cx="${size/2}" cy="${size/2}" r="${radius}" fill="none" stroke="#4A90E2" stroke-width="4" stroke-linecap="round" stroke-dasharray="${circ}" stroke-dashoffset="${circ}" transform="rotate(-90 ${size/2} ${size/2})"/>
-    </svg>
-    <div class="circle-play-overlay"><svg viewBox="0 0 24 24" width="34" height="34" fill="#fff"><path d="M8 5v14l11-7z"/></svg></div>
+    <div class="circle-play-overlay">
+      <svg viewBox="0 0 24 24" width="34" height="34" fill="#fff"><path d="M8 5v14l11-7z"/></svg>
+    </div>
   `;
   const vid = box.querySelector('video');
-  const ring = box.querySelector('.circle-ring-progress');
+  const bar = box.querySelector('.circle-top-bar');
+  const fill = box.querySelector('.circle-top-fill');
+  const thumb = box.querySelector('.circle-top-thumb');
   const overlay = box.querySelector('.circle-play-overlay');
 
-  vid.addEventListener('loadedmetadata', () => { vid.currentTime = 0.001; overlay.classList.add('visible'); });
+  vid.addEventListener('loadedmetadata', () => {
+    vid.currentTime = 0.001;
+    overlay.classList.add('visible');
+  });
+
   vid.addEventListener('click', (e) => {
     e.stopPropagation();
-    if (vid.paused) { vid.muted = false; vid.play(); } else { vid.pause(); }
+    if (vid.paused) { vid.muted = false; vid.play(); }
+    else { vid.pause(); }
   });
-  vid.addEventListener('play', () => { overlay.classList.remove('visible'); box.classList.add('playing'); });
-  vid.addEventListener('pause', () => { if (!vid.ended) overlay.classList.add('visible'); box.classList.remove('playing'); });
+
+  vid.addEventListener('play', () => {
+    overlay.classList.remove('visible');
+    box.classList.add('playing');
+  });
+  vid.addEventListener('pause', () => {
+    if (!vid.ended) overlay.classList.add('visible');
+    box.classList.remove('playing');
+  });
   vid.addEventListener('ended', () => {
-    overlay.classList.add('visible'); box.classList.remove('playing');
-    ring.style.strokeDashoffset = circ; vid.currentTime = 0.001;
+    overlay.classList.add('visible');
+    box.classList.remove('playing');
+    fill.style.width = '0%';
+    thumb.style.left = '0%';
+    vid.currentTime = 0.001;
   });
-  box.addEventListener('click', (e) => {
+
+  bar.addEventListener('click', (e) => {
+    e.stopPropagation();
     if (!vid.duration) return;
-    if (e.target === vid || e.target.classList.contains('circle-ring')) {
-      const r = box.getBoundingClientRect();
-      const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
-      let a = Math.atan2(e.clientY - cy, e.clientX - cx) + Math.PI / 2;
-      if (a < 0) a += 2 * Math.PI;
-      vid.currentTime = (a / (2 * Math.PI)) * vid.duration;
-    }
+    const r = bar.getBoundingClientRect();
+    const ratio = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+    vid.currentTime = ratio * vid.duration;
   });
+
   vid.addEventListener('timeupdate', () => {
     if (!vid.duration) return;
-    ring.style.strokeDashoffset = circ * (1 - vid.currentTime / vid.duration);
+    const p = vid.currentTime / vid.duration;
+    fill.style.width = (p * 100) + '%';
+    thumb.style.left = (p * 100) + '%';
   });
+
   return box;
 }
 
