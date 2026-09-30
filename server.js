@@ -4,7 +4,10 @@ const http = require('http');
 const WebSocket = require('ws');
 const path = require('path');
 const { S3Client, PutObjectCommand, GetObjectCommand } = require('@aws-sdk/client-s3');
-const { initDB, saveMessage, getHistory, markRead, deleteMessage, updateMessageText } = require('./db');
+const {
+  initDB, saveMessage, getHistory, markRead,
+  deleteMessage, deleteForUser, deleteChatForUser, updateMessageText
+} = require('./db');
 
 const app = express();
 const server = http.createServer(app);
@@ -48,7 +51,6 @@ app.put('/upload/:key(*)', async (req, res) => {
       Bucket: BUCKET, Key: key, Body: body,
       ContentType: req.headers['content-type'] || 'application/octet-stream',
     }));
-    console.log(`✅ B2: ${key} (${body.length} байт)`);
     res.json({ ok: true, key });
   } catch (e) {
     console.error('Upload error:', e);
@@ -66,7 +68,6 @@ app.get('/media/:key(*)', async (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
     s3res.Body.pipe(res);
   } catch (e) {
-    console.error('Get media error:', e);
     res.status(500).json({ error: e.message });
   }
 });
@@ -74,26 +75,17 @@ app.get('/media/:key(*)', async (req, res) => {
 wss.on('connection', async (ws) => {
   console.log('🔌 Клиент подключился');
 
-  try {
-    const history = await getHistory(200);
-    ws.send(JSON.stringify({ type: 'history', messages: history }));
-    ws.send(JSON.stringify({ type: 'pin', id: pinnedMessageId }));
-  } catch (e) { console.error('History error:', e); }
-
-  for (const name in userStates) {
-    ws.send(JSON.stringify({
-      type: 'presence', user: name,
-      online: userStates[name].online,
-      avatar: userStates[name].avatar,
-      last_seen: userStates[name].last_seen,
-      status: userStates[name].status || null,
-      typing: userStates[name].typing || false,
-    }));
-  }
-
   ws.on('message', async (data) => {
     try {
       const msg = JSON.parse(data);
+
+      // Отправка истории при первом сообщении от клиента
+      if (msg.type === 'hello') {
+        const history = await getHistory(msg.user, 300);
+        ws.send(JSON.stringify({ type: 'history', messages: history }));
+        ws.send(JSON.stringify({ type: 'pin', id: pinnedMessageId }));
+        return;
+      }
 
       if (msg.type === 'presence') {
         userStates[msg.user] = {
@@ -123,14 +115,26 @@ wss.on('connection', async (ws) => {
       }
 
       if (msg.type === 'delete') {
-        await deleteMessage(msg.id, msg.forAll);
-        if (pinnedMessageId === msg.id && msg.forAll) {
-          pinnedMessageId = null;
-          const pinPayload = JSON.stringify({ type: 'pin', id: null });
-          for (const c of wss.clients) if (c.readyState === WebSocket.OPEN) c.send(pinPayload);
+        if (msg.forAll) {
+          await deleteMessage(msg.id, true);
+          if (pinnedMessageId === msg.id) {
+            pinnedMessageId = null;
+            const pinPayload = JSON.stringify({ type: 'pin', id: null });
+            for (const c of wss.clients) if (c.readyState === WebSocket.OPEN) c.send(pinPayload);
+          }
+        } else {
+          await deleteForUser(msg.id, msg.by);
         }
         const payload = JSON.stringify(msg);
         for (const c of wss.clients) if (c.readyState === WebSocket.OPEN) c.send(payload);
+        return;
+      }
+
+      // Удаление всего чата у себя
+      if (msg.type === 'delete_chat') {
+        await deleteChatForUser(msg.user);
+        // Уведомляем только этого клиента — пусть очистит интерфейс
+        ws.send(JSON.stringify({ type: 'chat_cleared' }));
         return;
       }
 
@@ -182,7 +186,6 @@ wss.on('connection', async (ws) => {
         for (const c of wss.clients) if (c.readyState === WebSocket.OPEN) c.send(payload);
       }
     }
-    console.log('❌ Клиент отключился');
   });
 });
 

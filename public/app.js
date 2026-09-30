@@ -80,6 +80,7 @@ const $editModal = document.getElementById('editModal');
 const $closeEdit = document.getElementById('closeEdit');
 const $editText = document.getElementById('editText');
 const $saveEdit = document.getElementById('saveEdit');
+const $btnHeaderMenu = document.getElementById('btnHeaderMenu');
 
 // ==================== СОСТОЯНИЕ ====================
 let ws = null;
@@ -168,7 +169,13 @@ function updatePeerAvatar() {
 // ==================== WEBSOCKET ====================
 function connect() {
   ws = new WebSocket(WS_URL);
-  ws.onopen = () => { console.log('WS connected'); sendPresence(); setTimeout(sendPresence, 1000); setTimeout(sendPresence, 3000); };
+  ws.onopen = () => {
+  console.log('WS connected');
+  ws.send(JSON.stringify({ type: 'hello', user: myName }));
+  setTimeout(sendPresence, 200);
+  setTimeout(sendPresence, 1000);
+  setTimeout(sendPresence, 3000);
+  };
   ws.onmessage = (event) => {
     try {
       const msg = JSON.parse(event.data);
@@ -176,6 +183,7 @@ function connect() {
       else if (msg.type === 'presence') handlePresence(msg);
       else if (msg.type === 'read') handleRead(msg);
       else if (msg.type === 'delete') handleDelete(msg);
+      else if (msg.type === 'chat_cleared') handleChatCleared();
       else if (msg.type === 'edit') handleEdit(msg);
       else if (msg.type === 'pin') handlePin(msg);
       else { renderMessage(msg); if (msg.sender !== myName && msg.id) markRead([msg.id]); }
@@ -245,6 +253,13 @@ function handleDelete(msg) {
   const el = renderedMessages.get(msg.id);
   if (el) { el.remove(); renderedMessages.delete(msg.id); messagesById.delete(msg.id); }
   if (pinnedId === msg.id) { pinnedId = null; $pinnedBanner.classList.remove('active'); }
+}
+function handleChatCleared() {
+  $messages.innerHTML = '';
+  renderedMessages.clear();
+  messagesById.clear();
+  pinnedId = null;
+  $pinnedBanner.classList.remove('active');
 }
 
 function handleEdit(msg) {
@@ -998,6 +1013,28 @@ $saveEmoji.addEventListener('click', () => {
 });
 
 $peerStatusIcon.addEventListener('click', showStatusTooltip);
+$btnHeaderMenu.addEventListener('click', (e) => {
+  e.stopPropagation();
+  document.querySelectorAll('.msg-popup').forEach(p => p.remove());
+  const popup = document.createElement('div');
+  popup.className = 'msg-popup';
+  popup.innerHTML = `
+    <button data-action="delete-chat">Удалить чат у себя</button>
+  `;
+  popup.querySelector('[data-action="delete-chat"]').onclick = () => {
+    popup.remove();
+    if (!confirm('Удалить всю переписку у себя? Собеседник её не потеряет.')) return;
+    ws.send(JSON.stringify({ type: 'delete_chat', user: myName }));
+  };
+  document.body.appendChild(popup);
+  const r = $btnHeaderMenu.getBoundingClientRect();
+  popup.style.cssText = `position:fixed; top:${r.bottom+5}px; right:14px; z-index:300;`;
+  setTimeout(() => {
+    document.addEventListener('click', function cl(ev) {
+      if (!popup.contains(ev.target)) { popup.remove(); document.removeEventListener('click', cl); }
+    });
+  }, 10);
+});
 $btnProfile.addEventListener('click', openProfile);
 $closeProfile.addEventListener('click', closeProfile);
 $saveProfile.addEventListener('click', saveProfile);

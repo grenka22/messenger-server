@@ -209,3 +209,19 @@ body { background: #FFF5EE; display: flex; flex-direction: column; height: 100dv
 .msg img.attachment, .msg video.attachment { max-width: 100%; border-radius: 10px; display: block; }
 .msg .attachment-info { font-size: 13px; display: flex; align-items: center; gap: 8px; }
 .msg .attachment-info a { color: inherit; text-decoration: underline; word-break: break-all; }
+.header-menu-btn {
+  background: transparent;
+  border: none;
+  font-size: 22px;
+  color: #5A3A2A;
+  cursor: pointer;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  flex-shrink: 0;
+}
+.header-menu-btn:hover { background: rgba(0,0,0,0.05); }

@@ -18,15 +18,23 @@ async function initDB() {
       created_at TIMESTAMPTZ DEFAULT NOW(),
       read_at TIMESTAMPTZ,
       deleted_for_all BOOLEAN DEFAULT FALSE,
-      deleted_for_sender BOOLEAN DEFAULT FALSE,
       edited BOOLEAN DEFAULT FALSE
     );
   `);
   await pool.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS read_at TIMESTAMPTZ;`);
   await pool.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS deleted_for_all BOOLEAN DEFAULT FALSE;`);
-  await pool.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS deleted_for_sender BOOLEAN DEFAULT FALSE;`);
   await pool.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS edited BOOLEAN DEFAULT FALSE;`);
-  console.log('✅ Таблица messages готова');
+
+  // Таблица персональных удалений (кто у кого удалил)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS deletions (
+      user_name TEXT NOT NULL,
+      message_id INTEGER NOT NULL,
+      PRIMARY KEY (user_name, message_id)
+    );
+  `);
+
+  console.log('✅ Таблица messages и deletions готовы');
 }
 
 async function saveMessage(msg) {
@@ -38,15 +46,16 @@ async function saveMessage(msg) {
   return res.rows[0];
 }
 
-async function getHistory(limit = 200) {
+async function getHistory(userName, limit = 300) {
   const res = await pool.query(
-    `SELECT id, type, sender, text_content AS text, media_key AS "mediaKey",
-            media_mime AS mime, duration, created_at AS timestamp,
-            read_at, deleted_for_all, deleted_for_sender, edited
-     FROM messages
-     WHERE deleted_for_all = FALSE
-     ORDER BY id ASC LIMIT $1`,
-    [limit]
+    `SELECT m.id, m.type, m.sender, m.text_content AS text, m.media_key AS "mediaKey",
+            m.media_mime AS mime, m.duration, m.created_at AS timestamp,
+            m.read_at, m.deleted_for_all, m.edited
+     FROM messages m
+     WHERE m.deleted_for_all = FALSE
+       AND m.id NOT IN (SELECT message_id FROM deletions WHERE user_name = $1)
+     ORDER BY m.id ASC LIMIT $2`,
+    [userName, limit]
   );
   return res.rows;
 }
@@ -60,8 +69,26 @@ async function markRead(ids) {
 }
 
 async function deleteMessage(id, forAll) {
-  if (forAll) await pool.query(`UPDATE messages SET deleted_for_all = TRUE WHERE id = $1`, [id]);
-  else await pool.query(`UPDATE messages SET deleted_for_sender = TRUE WHERE id = $1`, [id]);
+  if (forAll) {
+    await pool.query(`UPDATE messages SET deleted_for_all = TRUE WHERE id = $1`, [id]);
+  }
+}
+
+async function deleteForUser(id, userName) {
+  await pool.query(
+    `INSERT INTO deletions (user_name, message_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+    [userName, id]
+  );
+}
+
+async function deleteChatForUser(userName) {
+  // Помечаем ВСЕ текущие сообщения как удалённые для конкретного пользователя
+  await pool.query(
+    `INSERT INTO deletions (user_name, message_id)
+     SELECT $1, id FROM messages WHERE id NOT IN (SELECT message_id FROM deletions WHERE user_name = $1)
+     ON CONFLICT DO NOTHING`,
+    [userName]
+  );
 }
 
 async function updateMessageText(id, newText) {
@@ -71,4 +98,7 @@ async function updateMessageText(id, newText) {
   );
 }
 
-module.exports = { initDB, saveMessage, getHistory, markRead, deleteMessage, updateMessageText };
+module.exports = {
+  initDB, saveMessage, getHistory, markRead,
+  deleteMessage, deleteForUser, deleteChatForUser, updateMessageText
+};
