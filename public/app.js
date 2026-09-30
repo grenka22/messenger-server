@@ -66,6 +66,13 @@ const $circleCancel = document.getElementById('circleCancel');
 const $circleSend = document.getElementById('circleSend');
 const $recIndicator = document.getElementById('recIndicator');
 const $recTime = document.getElementById('recTime');
+const $circleControls = document.getElementById('circleControls');
+const $ccPlay = document.getElementById('ccPlay');
+const $ccSpeed = document.getElementById('ccSpeed');
+const $ccClose = document.getElementById('ccClose');
+const $ccProgress = document.querySelector('.cc-progress');
+const $ccFill = document.getElementById('ccFill');
+const $ccThumb = document.getElementById('ccThumb');
 
 // ==================== СОСТОЯНИЕ ====================
 let ws = null;
@@ -83,6 +90,11 @@ let voiceRecorder = null, voiceChunks = [], voiceStartTime = 0, voiceTimerInterv
 let circleStream = null, circleRecorder = null, circleChunks = [], circleStartTime = 0, circleTimerInterval = null;
 
 const renderedMessages = new Map();
+
+let activeCircleVid = null;
+let activeCircleRing = null;
+let activeCircleCirc = 0;
+let ccHideTimer = null;
 
 // ==================== КЛЮЧИ ====================
 const myAvatarKey = () => `avatar_${myName}`;
@@ -102,7 +114,6 @@ function showLogin() {
 }
 
 function initChat() {
-  // Удаляем старые ключи от предыдущих версий
   ['profile_avatar', 'profile_email', 'status', 'my_name'].forEach(k => localStorage.removeItem(k));
 
   const peer = USERS[myName]?.peer;
@@ -113,8 +124,7 @@ function initChat() {
 
   try {
     const s = localStorage.getItem(`status_${myName}`);
-    if (s) myStatus = JSON.parse(s);
-    else myStatus = null;
+    if (s) myStatus = JSON.parse(s); else myStatus = null;
   } catch (e) { myStatus = null; }
 
   try {
@@ -173,12 +183,9 @@ function connect() {
 function sendPresence(extra = {}) {
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({
-      type: 'presence',
-      user: myName,
-      online: true,
+      type: 'presence', user: myName, online: true,
       avatar: localStorage.getItem(myAvatarKey()) || null,
-      status: myStatus,
-      typing: isTyping,
+      status: myStatus, typing: isTyping,
       ...extra,
     }));
   }
@@ -235,11 +242,9 @@ function handleDelete(msg) {
 function sendText() {
   const text = $input.value.trim();
   if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
-
   isTyping = false;
   clearTimeout(typingTimer);
   sendPresence();
-
   ws.send(JSON.stringify({ type: 'text', sender: myName, text }));
   $input.value = '';
   $input.focus();
@@ -297,13 +302,7 @@ function buildVoicePlayer(msg, isMine) {
   const mediaUrl = `/media/${encodeURIComponent(msg.mediaKey)}`;
   const box = document.createElement('div');
   box.className = 'voice-msg';
-  box.innerHTML = `
-    <button class="play-btn">▶</button>
-    <canvas class="wave" width="180" height="28"></canvas>
-    <span class="dur">${formatDuration(msg.duration || 0)}</span>
-    <button class="speed-btn">1×</button>
-    <button class="close-btn-voice">✕</button>
-  `;
+  box.innerHTML = `<button class="play-btn">▶</button><canvas class="wave" width="180" height="28"></canvas><span class="dur">${formatDuration(msg.duration || 0)}</span><button class="speed-btn">1×</button><button class="close-btn-voice">✕</button>`;
   const audio = new Audio(mediaUrl);
   audio.preload = 'metadata';
   const btn = box.querySelector('.play-btn');
@@ -326,13 +325,13 @@ function buildVoicePlayer(msg, isMine) {
   }).catch(e => console.warn('Waveform error:', e));
 
   canvas.addEventListener('click', (e) => {
-    if (!audio.duration) return;
+    if (!audio.duration || !isFinite(audio.duration)) return;
     const r = canvas.getBoundingClientRect();
     audio.currentTime = ((e.clientX - r.left) / r.width) * audio.duration;
   });
 
   btn.addEventListener('click', () => {
-    if (audio.paused) { audio.play(); btn.textContent = '⏸'; }
+    if (audio.paused) { audio.play().catch(() => {}); btn.textContent = '⏸'; }
     else { audio.pause(); btn.textContent = '▶'; }
   });
 
@@ -366,67 +365,174 @@ function buildVoicePlayer(msg, isMine) {
   return box;
 }
 
+// ==================== ПЛАШКА КРУЖКА ====================
+function showCircleControls() {
+  $circleControls.classList.add('active');
+  clearTimeout(ccHideTimer);
+  ccHideTimer = setTimeout(() => scheduleHideCircleControls(), 4000);
+}
+function scheduleHideCircleControls() {
+  clearTimeout(ccHideTimer);
+  ccHideTimer = setTimeout(() => {
+    if (activeCircleVid && !activeCircleVid.paused) return;
+    hideCircleControls();
+  }, 2000);
+}
+function hideCircleControls(force) {
+  if (!force && activeCircleVid && !activeCircleVid.paused) return;
+  $circleControls.classList.remove('active');
+}
+function updateCircleControls(cur, dur) {
+  if (!dur || !isFinite(dur)) return;
+  const p = cur / dur;
+  $ccFill.style.width = (p * 100) + '%';
+  $ccThumb.style.left = (p * 100) + '%';
+}
+
+$ccPlay.addEventListener('click', () => {
+  if (!activeCircleVid) return;
+  if (activeCircleVid.paused) { activeCircleVid.muted = false; activeCircleVid.play().catch(() => {}); }
+  else { activeCircleVid.pause(); }
+});
+
+$ccSpeed.addEventListener('click', () => {
+  if (!activeCircleVid) return;
+  if (activeCircleVid.playbackRate === 1) { activeCircleVid.playbackRate = 2; $ccSpeed.textContent = '2×'; }
+  else { activeCircleVid.playbackRate = 1; $ccSpeed.textContent = '1×'; }
+});
+
+$ccClose.addEventListener('click', () => {
+  if (!activeCircleVid) return;
+  activeCircleVid.pause();
+  activeCircleVid.playbackRate = 1;
+  $ccSpeed.textContent = '1×';
+  try { activeCircleVid.currentTime = 0.001; } catch (e) {}
+  if (activeCircleRing) activeCircleRing.style.strokeDashoffset = activeCircleCirc;
+  $ccFill.style.width = '0%';
+  $ccThumb.style.left = '0%';
+  hideCircleControls(true);
+  activeCircleVid = null;
+  activeCircleRing = null;
+});
+
+$ccProgress.addEventListener('click', (e) => {
+  if (!activeCircleVid || !activeCircleVid.duration || !isFinite(activeCircleVid.duration)) return;
+  const r = $ccProgress.getBoundingClientRect();
+  const ratio = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+  const t = ratio * activeCircleVid.duration;
+  if (isFinite(t)) { try { activeCircleVid.currentTime = t; } catch (er) {} }
+});
+
+let ccDragging = false;
+$ccProgress.addEventListener('pointerdown', (e) => { ccDragging = true; try { $ccProgress.setPointerCapture(e.pointerId); } catch (er) {} });
+$ccProgress.addEventListener('pointermove', (e) => {
+  if (!ccDragging || !activeCircleVid || !activeCircleVid.duration || !isFinite(activeCircleVid.duration)) return;
+  const r = $ccProgress.getBoundingClientRect();
+  const ratio = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+  const t = ratio * activeCircleVid.duration;
+  if (isFinite(t)) { try { activeCircleVid.currentTime = t; } catch (er) {} }
+});
+$ccProgress.addEventListener('pointerup', (e) => { ccDragging = false; try { $ccProgress.releasePointerCapture(e.pointerId); } catch (er) {} });
+
 // ==================== КРУЖОК ====================
 function buildCirclePlayer(msg) {
   const box = document.createElement('div');
   box.className = 'circle-msg';
+  const size = 180;
+  const radius = size / 2 - 3;
+  const circ = 2 * Math.PI * radius;
 
   box.innerHTML = `
-    <div class="circle-top-bar">
-      <div class="circle-top-fill"></div>
-      <div class="circle-top-thumb"></div>
-    </div>
+    <svg class="circle-ring" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+      <circle cx="${size/2}" cy="${size/2}" r="${radius}" fill="none" stroke="rgba(0,0,0,0.15)" stroke-width="3"/>
+      <circle class="circle-ring-progress" cx="${size/2}" cy="${size/2}" r="${radius}" fill="none" stroke="#4A90E2" stroke-width="3" stroke-linecap="round" stroke-dasharray="${circ}" stroke-dashoffset="${circ}" transform="rotate(-90 ${size/2} ${size/2})"/>
+    </svg>
     <video src="/media/${encodeURIComponent(msg.mediaKey)}" playsinline muted preload="metadata"></video>
-    <div class="circle-play-overlay">
-      <svg viewBox="0 0 24 24" width="34" height="34" fill="#fff"><path d="M8 5v14l11-7z"/></svg>
-    </div>
+    <div class="circle-play-overlay"><svg viewBox="0 0 24 24" width="34" height="34" fill="#fff"><path d="M8 5v14l11-7z"/></svg></div>
   `;
+
   const vid = box.querySelector('video');
-  const bar = box.querySelector('.circle-top-bar');
-  const fill = box.querySelector('.circle-top-fill');
-  const thumb = box.querySelector('.circle-top-thumb');
+  const ring = box.querySelector('.circle-ring-progress');
   const overlay = box.querySelector('.circle-play-overlay');
+  let duration = 0;
+  let isDragging = false;
 
   vid.addEventListener('loadedmetadata', () => {
-    vid.currentTime = 0.001;
+    if (isFinite(vid.duration) && vid.duration > 0) {
+      duration = vid.duration;
+      try { vid.currentTime = 0.001; } catch (e) {}
+    }
     overlay.classList.add('visible');
+  });
+  vid.addEventListener('durationchange', () => {
+    if (isFinite(vid.duration) && vid.duration > 0) duration = vid.duration;
   });
 
   vid.addEventListener('click', (e) => {
     e.stopPropagation();
-    if (vid.paused) { vid.muted = false; vid.play(); }
+    if (!duration) return;
+    if (vid.paused) { vid.muted = false; vid.play().catch(() => {}); }
     else { vid.pause(); }
   });
 
   vid.addEventListener('play', () => {
     overlay.classList.remove('visible');
     box.classList.add('playing');
+    $ccPlay.textContent = '⏸';
+    activeCircleVid = vid;
+    activeCircleRing = ring;
+    activeCircleCirc = circ;
+    showCircleControls();
   });
   vid.addEventListener('pause', () => {
     if (!vid.ended) overlay.classList.add('visible');
     box.classList.remove('playing');
+    $ccPlay.textContent = '▶';
+    scheduleHideCircleControls();
   });
   vid.addEventListener('ended', () => {
     overlay.classList.add('visible');
     box.classList.remove('playing');
-    fill.style.width = '0%';
-    thumb.style.left = '0%';
-    vid.currentTime = 0.001;
+    $ccPlay.textContent = '▶';
+    ring.style.strokeDashoffset = circ;
+    try { vid.currentTime = 0.001; } catch (e) {}
+    hideCircleControls(true);
   });
 
-  bar.addEventListener('click', (e) => {
-    e.stopPropagation();
-    if (!vid.duration) return;
-    const r = bar.getBoundingClientRect();
-    const ratio = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
-    vid.currentTime = ratio * vid.duration;
+  function seekFromPoint(clientX, clientY) {
+    if (!duration) return;
+    const r = box.getBoundingClientRect();
+    const cx = r.left + r.width / 2;
+    const cy = r.top + r.height / 2;
+    let angle = Math.atan2(clientY - cy, clientX - cx) + Math.PI / 2;
+    if (angle < 0) angle += 2 * Math.PI;
+    const t = (angle / (2 * Math.PI)) * duration;
+    if (isFinite(t) && t >= 0 && t <= duration) {
+      try { vid.currentTime = t; } catch (e) {}
+    }
+  }
+
+  box.addEventListener('click', (e) => {
+    if (e.target === vid || e.target.classList.contains('circle-ring') || e.target.classList.contains('circle-ring-progress')) {
+      seekFromPoint(e.clientX, e.clientY);
+    }
+  });
+  box.addEventListener('pointerdown', (e) => {
+    if (e.target === vid || e.target.classList.contains('circle-ring') || e.target.classList.contains('circle-ring-progress')) {
+      isDragging = true;
+      try { box.setPointerCapture(e.pointerId); } catch (er) {}
+    }
+  });
+  box.addEventListener('pointermove', (e) => { if (isDragging) seekFromPoint(e.clientX, e.clientY); });
+  box.addEventListener('pointerup', (e) => {
+    if (isDragging) { isDragging = false; try { box.releasePointerCapture(e.pointerId); } catch (er) {} }
   });
 
   vid.addEventListener('timeupdate', () => {
-    if (!vid.duration) return;
-    const p = vid.currentTime / vid.duration;
-    fill.style.width = (p * 100) + '%';
-    thumb.style.left = (p * 100) + '%';
+    if (!duration) return;
+    const p = vid.currentTime / duration;
+    ring.style.strokeDashoffset = circ * (1 - p);
+    if (vid === activeCircleVid) updateCircleControls(vid.currentTime, duration);
   });
 
   return box;
@@ -438,33 +544,19 @@ function buildFileAttachment(msg) {
   const url = `/media/${encodeURIComponent(msg.mediaKey)}`;
   const mime = msg.mime || '';
   const name = msg.filename || msg.text || 'файл';
-
-  if (mime.startsWith('image/')) {
-    box.innerHTML = `<img src="${url}" alt="${name}" class="attachment">`;
-  } else if (mime.startsWith('video/')) {
-    box.innerHTML = `<video src="${url}" class="attachment" controls playsinline preload="metadata"></video>`;
-  } else if (mime.startsWith('audio/')) {
-    box.innerHTML = `<audio src="${url}" controls style="width:100%; max-width: 260px;"></audio>`;
-  } else {
-    box.innerHTML = `<div class="attachment-info"><span>📎</span><a href="${url}" target="_blank" download="${name}">${name}</a></div>`;
-  }
+  if (mime.startsWith('image/')) box.innerHTML = `<img src="${url}" alt="${name}" class="attachment">`;
+  else if (mime.startsWith('video/')) box.innerHTML = `<video src="${url}" class="attachment" controls playsinline preload="metadata"></video>`;
+  else if (mime.startsWith('audio/')) box.innerHTML = `<audio src="${url}" controls style="width:100%; max-width: 260px;"></audio>`;
+  else box.innerHTML = `<div class="attachment-info"><span>📎</span><a href="${url}" target="_blank" download="${name}">${name}</a></div>`;
   return box;
 }
-
 function sendAttachment(file) {
   if (!file) return;
   if (file.size > 25 * 1024 * 1024) return alert('Файл больше 25 МБ');
   const ext = file.name.split('.').pop() || 'bin';
   const bubble = showUploadingBubble(file.name);
   uploadBlobWithProgress(file, ext, (p) => bubble.setProgress(p))
-    .then((key) => {
-      bubble.remove();
-      ws.send(JSON.stringify({
-        type: 'file', sender: myName, mediaKey: key,
-        mime: file.type || 'application/octet-stream',
-        filename: file.name,
-      }));
-    })
+    .then((key) => { bubble.remove(); ws.send(JSON.stringify({ type: 'file', sender: myName, mediaKey: key, mime: file.type || 'application/octet-stream', filename: file.name })); })
     .catch((e) => { bubble.remove(); alert('Ошибка: ' + e.message); });
 }
 
@@ -480,7 +572,6 @@ function pickMimeType(kind) {
   for (const t of c) { try { if (MediaRecorder.isTypeSupported(t)) return t; } catch (e) {} }
   return '';
 }
-
 function formatDuration(s) { const m = Math.floor(s/60); const x = Math.floor(s%60).toString().padStart(2,'0'); return `${m}:${x}`; }
 function formatTime(ts) { const d = ts ? new Date(ts) : new Date(); return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }); }
 function formatLastSeen(ts) {
@@ -497,7 +588,6 @@ function formatLastSeen(ts) {
   if (dd.getTime() === y.getTime()) return `был(а) вчера в ${t}`;
   return `был(а) ${d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' })} в ${t}`;
 }
-
 function uploadBlobWithProgress(blob, ext, onProgress) {
   return new Promise((resolve, reject) => {
     const key = `media/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
@@ -511,7 +601,6 @@ function uploadBlobWithProgress(blob, ext, onProgress) {
     xhr.send(blob);
   });
 }
-
 function showUploadingBubble(label) {
   const w = document.createElement('div');
   w.className = 'msg mine';
@@ -558,7 +647,6 @@ async function startVoiceRecording() {
     }, 200);
   } catch (e) { console.error(e); alert('Нет доступа к микрофону'); }
 }
-
 function stopVoiceRecording() {
   if (voiceRecorder && voiceRecorder.state === 'recording') { voiceRecorder.requestData(); voiceRecorder.stop(); }
   clearInterval(voiceTimerInterval);
@@ -604,7 +692,6 @@ async function startCircleRecording() {
     }, 200);
   } catch (e) { console.error(e); alert('Нет доступа к камере: ' + e.message); if (circleStream) circleStream.getTracks().forEach(t => t.stop()); $circlePreview.classList.remove('active'); }
 }
-
 function stopCircleRecording() {
   if (circleRecorder && circleRecorder.state === 'recording') { circleRecorder.requestData(); circleRecorder.stop(); }
   clearInterval(circleTimerInterval);
@@ -698,29 +785,23 @@ function setMyStatus(emoji, text) {
   if (myStatus) {
     localStorage.setItem(`status_${myName}`, JSON.stringify(myStatus));
     if (myStatus.emoji) addToStatusHistory(myStatus);
-  } else {
-    localStorage.removeItem(`status_${myName}`);
-  }
+  } else localStorage.removeItem(`status_${myName}`);
   if (ws && ws.readyState === WebSocket.OPEN) sendPresence();
   closeStatusModal();
   closeEmojiModal();
 }
-
 function getStatusHistory() {
   try { return JSON.parse(localStorage.getItem(`status_history_${myName}`) || '[]'); }
   catch (e) { return []; }
 }
-
 function addToStatusHistory(status) {
   if (!status || !status.emoji) return;
   const history = getStatusHistory();
   const filtered = history.filter(s => !(s.emoji === status.emoji && s.text === status.text));
   filtered.unshift(status);
-  const limited = filtered.slice(0, 10);
-  localStorage.setItem(`status_history_${myName}`, JSON.stringify(limited));
+  localStorage.setItem(`status_history_${myName}`, JSON.stringify(filtered.slice(0, 10)));
   renderStatusHistory();
 }
-
 function renderStatusHistory() {
   const history = getStatusHistory();
   if (history.length === 0) { $recentStatusesBlock.style.display = 'none'; return; }
@@ -734,7 +815,6 @@ function renderStatusHistory() {
     $recentStatuses.appendChild(b);
   });
 }
-
 function updatePeerStatusIcon() {
   if (peerStatusData && peerStatusData.emoji) {
     $peerStatusIcon.hidden = false;
@@ -774,30 +854,18 @@ function closeEmojiModal() { $emojiModal.classList.remove('active'); }
 
 // ==================== TYPING ====================
 function onTyping() {
-  if (!isTyping) {
-    isTyping = true;
-    sendPresence();
-  }
+  if (!isTyping) { isTyping = true; sendPresence(); }
   clearTimeout(typingTimer);
-  typingTimer = setTimeout(() => {
-    isTyping = false;
-    sendPresence();
-  }, 2000);
+  typingTimer = setTimeout(() => { isTyping = false; sendPresence(); }, 2000);
 }
 
 // ==================== СОБЫТИЯ ====================
 $btnSend.addEventListener('click', sendText);
 $input.addEventListener('input', onTyping);
-$input.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') { sendText(); }
-  else { onTyping(); }
-});
+$input.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendText(); else onTyping(); });
 
 $btnAttach.addEventListener('click', () => $fileInput.click());
-$fileInput.addEventListener('change', (e) => {
-  Array.from(e.target.files).forEach(sendAttachment);
-  e.target.value = '';
-});
+$fileInput.addEventListener('change', (e) => { Array.from(e.target.files).forEach(sendAttachment); e.target.value = ''; });
 $btnEmoji.addEventListener('click', openEmojiModal);
 $closeEmoji.addEventListener('click', closeEmojiModal);
 $emojiModal.addEventListener('click', (e) => { if (e.target === $emojiModal) closeEmojiModal(); });

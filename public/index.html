@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta name="theme-color" content="#FFE4D1">
   <title>Мессенджер</title>
-  <link rel="stylesheet" href="style.css?v=9">
+  <link rel="stylesheet" href="style.css?v=10">
 </head>
 <body>
 
@@ -33,6 +33,16 @@
       <img id="headerAvatar" src="" alt="">
       <svg id="headerAvatarPlaceholder" viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10Zm0 2c-4.42 0-8 2.24-8 5v1h16v-1c0-2.76-3.58-5-8-5Z"/></svg>
     </button>
+  </div>
+
+  <div class="circle-controls" id="circleControls">
+    <button class="cc-btn" id="ccPlay">▶</button>
+    <div class="cc-progress">
+      <div class="cc-fill" id="ccFill"></div>
+      <div class="cc-thumb" id="ccThumb"></div>
+    </div>
+    <button class="cc-btn cc-speed" id="ccSpeed">1×</button>
+    <button class="cc-btn cc-close" id="ccClose">✕</button>
   </div>
 
   <div class="messages" id="messages"></div>
@@ -115,6 +125,6 @@
     <div class="dot"></div><span id="recTime">0:00</span><span class="hint">отпустите для отправки</span>
   </div>
 
-  <script src="app.js?v=9"></script>
+  <script src="app.js?v=10"></script>
 </body>
 </html>
