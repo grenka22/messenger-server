@@ -1,192 +1,74 @@
-require('dotenv').config();
-const express = require('express');
-const http = require('http');
-const WebSocket = require('ws');
-const path = require('path');
-const { S3Client, PutObjectCommand, GetObjectCommand } = require('@aws-sdk/client-s3');
-const { initDB, saveMessage, getHistory, markRead, deleteMessage, updateMessageText } = require('./db');
+const { Pool } = require('pg');
 
-const app = express();
-const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
-
-const s3 = new S3Client({
-  region: process.env.B2_REGION,
-  endpoint: process.env.B2_ENDPOINT,
-  credentials: {
-    accessKeyId: process.env.B2_KEY_ID,
-    secretAccessKey: process.env.B2_APP_KEY,
-  },
-  forcePathStyle: true,
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false }
 });
 
-const BUCKET = process.env.B2_BUCKET;
-const userStates = {};
-let pinnedMessageId = null;
+async function initDB() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS messages (
+      id SERIAL PRIMARY KEY,
+      type TEXT NOT NULL,
+      sender TEXT,
+      text_content TEXT,
+      media_key TEXT,
+      media_mime TEXT,
+      duration INTEGER,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      read_at TIMESTAMPTZ,
+      deleted_for_all BOOLEAN DEFAULT FALSE,
+      deleted_for_sender BOOLEAN DEFAULT FALSE,
+      edited BOOLEAN DEFAULT FALSE
+    );
+  `);
+  await pool.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS read_at TIMESTAMPTZ;`);
+  await pool.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS deleted_for_all BOOLEAN DEFAULT FALSE;`);
+  await pool.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS deleted_for_sender BOOLEAN DEFAULT FALSE;`);
+  await pool.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS edited BOOLEAN DEFAULT FALSE;`);
+  console.log('✅ Таблица messages готова');
+}
 
-app.use(express.static(path.join(__dirname, 'public')));
+async function saveMessage(msg) {
+  const res = await pool.query(
+    `INSERT INTO messages (type, sender, text_content, media_key, media_mime, duration)
+     VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, created_at`,
+    [msg.type, msg.sender || null, msg.text || null, msg.mediaKey || null, msg.mime || null, msg.duration || null]
+  );
+  return res.rows[0];
+}
 
-app.put('/upload/:key(*)', async (req, res) => {
-  try {
-    const key = req.params.key;
-    if (!key) return res.status(400).json({ error: 'No key' });
-    const chunks = [];
-    let total = 0;
-    const MAX = 25 * 1024 * 1024;
-    await new Promise((resolve, reject) => {
-      req.on('data', (c) => {
-        total += c.length;
-        if (total > MAX) { reject(new Error('Too big')); req.destroy(); return; }
-        chunks.push(c);
-      });
-      req.on('end', resolve);
-      req.on('error', reject);
-    });
-    const body = Buffer.concat(chunks);
-    if (body.length === 0) return res.status(400).json({ error: 'Empty body' });
-    await s3.send(new PutObjectCommand({
-      Bucket: BUCKET, Key: key, Body: body,
-      ContentType: req.headers['content-type'] || 'application/octet-stream',
-    }));
-    console.log(`✅ B2: ${key} (${body.length} байт)`);
-    res.json({ ok: true, key });
-  } catch (e) {
-    console.error('Upload error:', e);
-    res.status(500).json({ error: e.message });
-  }
-});
+async function getHistory(limit = 200) {
+  const res = await pool.query(
+    `SELECT id, type, sender, text_content AS text, media_key AS "mediaKey",
+            media_mime AS mime, duration, created_at AS timestamp,
+            read_at, deleted_for_all, deleted_for_sender, edited
+     FROM messages
+     WHERE deleted_for_all = FALSE
+     ORDER BY id ASC LIMIT $1`,
+    [limit]
+  );
+  return res.rows;
+}
 
-app.get('/media/:key(*)', async (req, res) => {
-  try {
-    const key = req.params.key;
-    const s3res = await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: key }));
-    if (s3res.ContentType) res.setHeader('Content-Type', s3res.ContentType);
-    if (s3res.ContentLength) res.setHeader('Content-Length', s3res.ContentLength);
-    res.setHeader('Cache-Control', 'public, max-age=3600');
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    s3res.Body.pipe(res);
-  } catch (e) {
-    console.error('Get media error:', e);
-    res.status(500).json({ error: e.message });
-  }
-});
+async function markRead(ids) {
+  if (!ids || ids.length === 0) return;
+  await pool.query(
+    `UPDATE messages SET read_at = NOW() WHERE id = ANY($1::int[]) AND read_at IS NULL`,
+    [ids]
+  );
+}
 
-wss.on('connection', async (ws) => {
-  console.log('🔌 Клиент подключился');
+async function deleteMessage(id, forAll) {
+  if (forAll) await pool.query(`UPDATE messages SET deleted_for_all = TRUE WHERE id = $1`, [id]);
+  else await pool.query(`UPDATE messages SET deleted_for_sender = TRUE WHERE id = $1`, [id]);
+}
 
-  try {
-    const history = await getHistory(200);
-    ws.send(JSON.stringify({ type: 'history', messages: history }));
-    ws.send(JSON.stringify({ type: 'pin', id: pinnedMessageId }));
-  } catch (e) { console.error('History error:', e); }
+async function updateMessageText(id, newText) {
+  await pool.query(
+    `UPDATE messages SET text_content = $1, edited = TRUE WHERE id = $2`,
+    [newText, id]
+  );
+}
 
-  for (const name in userStates) {
-    ws.send(JSON.stringify({
-      type: 'presence', user: name,
-      online: userStates[name].online,
-      avatar: userStates[name].avatar,
-      last_seen: userStates[name].last_seen,
-      status: userStates[name].status || null,
-      typing: userStates[name].typing || false,
-    }));
-  }
-
-  ws.on('message', async (data) => {
-    try {
-      const msg = JSON.parse(data);
-
-      if (msg.type === 'presence') {
-        userStates[msg.user] = {
-          online: msg.online,
-          last_seen: Date.now(),
-          avatar: msg.avatar || userStates[msg.user]?.avatar || null,
-          status: msg.status !== undefined ? msg.status : userStates[msg.user]?.status || null,
-          typing: msg.typing || false,
-        };
-        const payload = JSON.stringify({
-          type: 'presence', user: msg.user,
-          online: msg.online,
-          avatar: userStates[msg.user].avatar,
-          last_seen: userStates[msg.user].last_seen,
-          status: userStates[msg.user].status,
-          typing: userStates[msg.user].typing,
-        });
-        for (const c of wss.clients) if (c.readyState === WebSocket.OPEN) c.send(payload);
-        return;
-      }
-
-      if (msg.type === 'read') {
-        if (msg.ids && msg.ids.length > 0) await markRead(msg.ids);
-        const payload = JSON.stringify(msg);
-        for (const c of wss.clients) if (c.readyState === WebSocket.OPEN) c.send(payload);
-        return;
-      }
-
-      if (msg.type === 'delete') {
-        await deleteMessage(msg.id, msg.forAll);
-        if (pinnedMessageId === msg.id && msg.forAll) {
-          pinnedMessageId = null;
-          const pinPayload = JSON.stringify({ type: 'pin', id: null });
-          for (const c of wss.clients) if (c.readyState === WebSocket.OPEN) c.send(pinPayload);
-        }
-        const payload = JSON.stringify(msg);
-        for (const c of wss.clients) if (c.readyState === WebSocket.OPEN) c.send(payload);
-        return;
-      }
-
-      if (msg.type === 'edit') {
-        await updateMessageText(msg.id, msg.text);
-        const payload = JSON.stringify({ type: 'edit', id: msg.id, text: msg.text });
-        for (const c of wss.clients) if (c.readyState === WebSocket.OPEN) c.send(payload);
-        return;
-      }
-
-      if (msg.type === 'pin') {
-        pinnedMessageId = msg.id;
-        const payload = JSON.stringify({ type: 'pin', id: pinnedMessageId });
-        for (const c of wss.clients) if (c.readyState === WebSocket.OPEN) c.send(payload);
-        return;
-      }
-
-      if (['text', 'voice', 'video', 'file'].includes(msg.type)) {
-        const saved = await saveMessage({
-          ...msg,
-          text: msg.text || msg.filename || null,
-        });
-        const outgoing = {
-          id: saved.id, type: msg.type, sender: msg.sender,
-          text: msg.text || null,
-          filename: msg.filename || null,
-          mediaKey: msg.mediaKey, mime: msg.mime, duration: msg.duration,
-          timestamp: saved.created_at, read_at: null, edited: false,
-        };
-        const payload = JSON.stringify(outgoing);
-        for (const c of wss.clients) if (c.readyState === WebSocket.OPEN) c.send(payload);
-      }
-    } catch (e) { console.error('Message error:', e); }
-  });
-
-  ws.on('close', () => {
-    const now = Date.now();
-    for (const name in userStates) {
-      if (userStates[name].online) {
-        userStates[name].online = false;
-        userStates[name].last_seen = now;
-        userStates[name].typing = false;
-        const payload = JSON.stringify({
-          type: 'presence', user: name,
-          online: false, avatar: userStates[name].avatar,
-          last_seen: now, status: userStates[name].status,
-          typing: false,
-        });
-        for (const c of wss.clients) if (c.readyState === WebSocket.OPEN) c.send(payload);
-      }
-    }
-    console.log('❌ Клиент отключился');
-  });
-});
-
-const PORT = process.env.PORT || 3000;
-initDB()
-  .then(() => server.listen(PORT, () => console.log(`🚀 Сервер на порту ${PORT}`)))
-  .catch((e) => { console.error('❌ БД:', e); process.exit(1); });
+module.exports = { initDB, saveMessage, getHistory, markRead, deleteMessage, updateMessageText };
