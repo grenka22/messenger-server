@@ -30,17 +30,22 @@ body { background: #FFF5EE; display: flex; flex-direction: column; height: 100dv
 .profile-btn img.loaded { display: block; }
 .profile-btn img.loaded + svg { display: none; }
 
-/* Плашка управления кружком (под шапкой) */
-.circle-controls {
-  display: none;
-  align-items: center;
-  gap: 10px;
-  background: #FFE4D1;
-  border-bottom: 1px solid #F5D0B8;
-  padding: 8px 14px;
-  flex-shrink: 0;
-  animation: slideDown 0.2s ease;
+/* Баннер закреплённого */
+.pinned-banner { display: none; align-items: center; gap: 8px; background: #FFF0E0; border-bottom: 1px solid #F5D0B8; border-left: 3px solid #4A90E2; padding: 8px 12px; flex-shrink: 0; cursor: pointer; font-size: 13px; color: #5A3A2A; }
+.pinned-banner.active { display: flex; }
+.pin-icon { font-size: 16px; flex-shrink: 0; }
+.pin-text { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
+.pin-close { background: transparent; border: none; color: #8A6B5A; font-size: 16px; cursor: pointer; padding: 2px 6px; border-radius: 6px; flex-shrink: 0; }
+.pin-close:hover { background: #FFE4D1; }
+
+.msg.pin-highlight { animation: pinFlash 1.5s ease; }
+@keyframes pinFlash {
+  0%   { box-shadow: 0 0 0 3px rgba(74,144,226,0.8); }
+  100% { box-shadow: 0 0 0 3px rgba(74,144,226,0); }
 }
+
+/* Плашка кружка */
+.circle-controls { display: none; align-items: center; gap: 10px; background: #FFE4D1; border-bottom: 1px solid #F5D0B8; padding: 8px 14px; flex-shrink: 0; animation: slideDown 0.2s ease; }
 .circle-controls.active { display: flex; }
 @keyframes slideDown { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
 .cc-btn { border: none; background: #4A90E2; color: #fff; width: 34px; height: 34px; border-radius: 50%; font-size: 14px; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; padding: 0; }
@@ -82,22 +87,41 @@ body { background: #FFF5EE; display: flex; flex-direction: column; height: 100dv
 .msg-menu { background: transparent; border: none; color: rgba(255,255,255,0.6); cursor: pointer; font-size: 16px; padding: 0 2px; opacity: 0; }
 .msg:hover .msg-menu { opacity: 1; }
 .msg.theirs .msg-menu { color: rgba(0,0,0,0.35); }
+.edited-mark { font-size: 10px; opacity: 0.7; margin-left: 4px; font-style: italic; }
 
 /* Меню сообщения */
-.msg-popup { background: #fff; border: 1px solid #F5D0B8; border-radius: 12px; box-shadow: 0 6px 20px rgba(0,0,0,0.15); padding: 6px; display: flex; flex-direction: column; min-width: 180px; }
+.msg-popup { background: #fff; border: 1px solid #F5D0B8; border-radius: 12px; box-shadow: 0 6px 20px rgba(0,0,0,0.15); padding: 6px; display: flex; flex-direction: column; min-width: 200px; }
 .msg-popup button { background: transparent; border: none; text-align: left; padding: 10px 14px; font-size: 14px; color: #5A3A2A; cursor: pointer; border-radius: 8px; }
 .msg-popup button:hover { background: #FFE4D1; }
 
-/* Голосовое */
-.voice-msg { display: flex; align-items: center; gap: 6px; min-width: 260px; }
-.voice-msg .play-btn { width: 34px; height: 34px; border-radius: 50%; background: rgba(255,255,255,0.3); border: none; color: inherit; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 13px; flex-shrink: 0; }
+/* Голосовое — большие круглые кнопки play как в Telegram */
+.voice-msg { display: flex; align-items: center; gap: 10px; min-width: 260px; }
+.voice-msg .play-btn {
+  width: 44px; height: 44px;
+  border-radius: 50%;
+  background: #fff;
+  color: #4A90E2;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  flex-shrink: 0;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+  transition: transform 0.1s;
+}
+.voice-msg .play-btn:active { transform: scale(0.93); }
+.voice-msg .play-btn.playing {
+  background: rgba(255,255,255,0.95);
+  box-shadow: 0 0 0 4px rgba(255,255,255,0.25);
+}
 .voice-msg .wave { flex: 1; height: 28px; cursor: pointer; min-width: 80px; }
-.voice-msg .dur { font-size: 12px; opacity: 0.75; min-width: 30px; text-align: right; }
-.voice-msg .speed-btn { background: rgba(255,255,255,0.25); border: none; color: inherit; font-size: 11px; font-weight: 600; padding: 3px 7px; border-radius: 10px; cursor: pointer; flex-shrink: 0; }
+.voice-msg .dur { font-size: 12px; opacity: 0.85; min-width: 30px; text-align: right; font-weight: 500; }
+.voice-msg .speed-btn { background: rgba(255,255,255,0.3); border: none; color: inherit; font-size: 11px; font-weight: 700; padding: 4px 8px; border-radius: 12px; cursor: pointer; flex-shrink: 0; }
 .voice-msg .speed-btn:active { transform: scale(0.95); }
 .voice-msg .close-btn-voice { background: transparent; border: none; color: inherit; font-size: 14px; cursor: pointer; opacity: 0.7; padding: 4px; flex-shrink: 0; line-height: 1; }
-.voice-msg .close-btn-voice:hover { opacity: 1; }
-.msg.theirs .voice-msg .play-btn { background: rgba(0,0,0,0.08); }
+.msg.theirs .voice-msg .play-btn { color: #4A90E2; background: #fff; border: 2px solid #F5D0B8; }
 .msg.theirs .voice-msg .speed-btn { background: rgba(0,0,0,0.06); }
 
 /* Кружок */
@@ -106,23 +130,8 @@ body { background: #FFF5EE; display: flex; flex-direction: column; height: 100dv
 .circle-msg video { position: absolute; top: 6px; left: 6px; width: calc(100% - 12px); height: calc(100% - 12px); object-fit: cover; border-radius: 50%; display: block; background: #000; cursor: pointer; }
 .circle-ring { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: auto; cursor: pointer; z-index: 4; }
 .circle-ring-progress { transition: stroke-dashoffset 0.1s linear; }
-.circle-play-overlay {
-  position: absolute;
-  top: 6px; left: 6px;
-  width: calc(100% - 12px);
-  height: calc(100% - 12px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  background: rgba(0,0,0,0.35);
-  opacity: 0;
-  transition: opacity 0.15s ease;
-  pointer-events: none;
-  z-index: 5;
-}
+.circle-play-overlay { position: absolute; top: 6px; left: 6px; width: calc(100% - 12px); height: calc(100% - 12px); display: flex; align-items: center; justify-content: center; border-radius: 50%; background: rgba(0,0,0,0.35); opacity: 0; transition: opacity 0.15s ease; pointer-events: none; z-index: 5; }
 .circle-play-overlay.visible { opacity: 1; }
-.circle-top-bar, .circle-top-fill, .circle-top-thumb { display: none !important; }
 
 /* Панель ввода */
 .composer { background: #FFE4D1; border-top: 1px solid #F5D0B8; padding: 8px 8px; padding-bottom: max(8px, env(safe-area-inset-bottom)); display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
@@ -151,11 +160,10 @@ body { background: #FFF5EE; display: flex; flex-direction: column; height: 100dv
 
 .field { margin-bottom: 14px; }
 .field label { display: block; font-size: 13px; color: #8A6B5A; margin-bottom: 5px; }
-.field input { width: 100%; padding: 11px 14px; border-radius: 12px; border: 1px solid #F5D0B8; background: #fff; font-size: 15px; outline: none; }
-.field input:focus { border-color: #4A90E2; }
+.field input, .field textarea { width: 100%; padding: 11px 14px; border-radius: 12px; border: 1px solid #F5D0B8; background: #fff; font-size: 15px; outline: none; font-family: inherit; }
+.field input:focus, .field textarea:focus { border-color: #4A90E2; }
 .save-btn { width: 100%; padding: 13px; border: none; border-radius: 12px; background: #4A90E2; color: #fff; font-size: 15px; font-weight: 600; cursor: pointer; margin-top: 8px; }
 
-/* Статусы */
 .status-grid { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
 .status-item { display: flex; align-items: center; gap: 12px; padding: 12px 14px; background: #fff; border: 2px solid #F5D0B8; border-radius: 14px; cursor: pointer; text-align: left; }
 .status-item:hover { border-color: #4A90E2; }
@@ -168,7 +176,6 @@ body { background: #FFF5EE; display: flex; flex-direction: column; height: 100dv
 .recent-statuses .recent-emoji { font-size: 18px; }
 .recent-statuses .recent-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px; }
 
-/* Эмодзи */
 .emoji-picker { margin-bottom: 14px; }
 .emoji-picker-current { font-size: 60px; text-align: center; padding: 10px 0; background: #FFE4D1; border-radius: 16px; margin-bottom: 10px; }
 .emoji-scroll { display: flex; flex-wrap: wrap; gap: 4px; max-height: 200px; overflow-y: auto; padding: 8px; background: #fff; border: 1px solid #F5D0B8; border-radius: 12px; }
@@ -178,7 +185,6 @@ body { background: #FFF5EE; display: flex; flex-direction: column; height: 100dv
 .status-tooltip { position: fixed; background: rgba(0,0,0,0.85); color: #fff; padding: 8px 14px; border-radius: 12px; font-size: 13px; z-index: 400; pointer-events: none; opacity: 0; transition: opacity 0.15s; max-width: 240px; text-align: center; }
 .status-tooltip.visible { opacity: 1; }
 
-/* Запись кружка */
 .circle-preview { position: fixed; inset: 0; background: rgba(0,0,0,0.9); display: none; align-items: center; justify-content: center; flex-direction: column; z-index: 100; }
 .circle-preview.active { display: flex; }
 .circle-preview video { width: 70vw; height: 70vw; max-width: 320px; max-height: 320px; border-radius: 50%; object-fit: cover; transform: scaleX(-1); }
@@ -188,12 +194,10 @@ body { background: #FFF5EE; display: flex; flex-direction: column; height: 100dv
 .circle-preview .cancel { background: #666; }
 .circle-preview .send { background: #4A90E2; }
 
-/* Индикатор записи */
 .rec-indicator { display: none; position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.8); color: #fff; padding: 10px 20px; border-radius: 22px; font-size: 14px; z-index: 50; align-items: center; gap: 10px; }
 .rec-indicator.active { display: flex; }
 .rec-indicator .dot { width: 10px; height: 10px; border-radius: 50%; background: #E24A4A; animation: pulse 1s infinite; }
 
-/* Прогресс */
 .upload-progress { min-width: 220px; padding: 2px 0; }
 .upload-label { font-size: 13px; margin-bottom: 6px; }
 .upload-bar { height: 6px; background: rgba(255,255,255,0.35); border-radius: 3px; overflow: hidden; }
@@ -202,7 +206,6 @@ body { background: #FFF5EE; display: flex; flex-direction: column; height: 100dv
 .msg.theirs .upload-bar { background: rgba(0,0,0,0.1); }
 .msg.theirs .upload-fill { background: #4A90E2; }
 
-/* Вложения */
 .msg img.attachment, .msg video.attachment { max-width: 100%; border-radius: 10px; display: block; }
 .msg .attachment-info { font-size: 13px; display: flex; align-items: center; gap: 8px; }
 .msg .attachment-info a { color: inherit; text-decoration: underline; word-break: break-all; }

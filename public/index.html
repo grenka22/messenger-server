@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta name="theme-color" content="#FFE4D1">
   <title>Мессенджер</title>
-  <link rel="stylesheet" href="style.css?v=10">
+  <link rel="stylesheet" href="style.css?v=11">
 </head>
 <body>
 
@@ -33,6 +33,12 @@
       <img id="headerAvatar" src="" alt="">
       <svg id="headerAvatarPlaceholder" viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10Zm0 2c-4.42 0-8 2.24-8 5v1h16v-1c0-2.76-3.58-5-8-5Z"/></svg>
     </button>
+  </div>
+
+  <div class="pinned-banner" id="pinnedBanner">
+    <div class="pin-icon">📌</div>
+    <div class="pin-text" id="pinText"></div>
+    <button class="pin-close" id="pinClose" title="Открепить">✕</button>
   </div>
 
   <div class="circle-controls" id="circleControls">
@@ -110,6 +116,14 @@
     </div>
   </div>
 
+  <div class="modal" id="editModal">
+    <div class="modal-content">
+      <div class="modal-header"><h2>Редактировать</h2><button class="close-btn" id="closeEdit">✕</button></div>
+      <div class="field"><textarea id="editText" rows="4" style="width:100%; padding:11px 14px; border-radius:12px; border:1px solid #F5D0B8; background:#fff; font-size:15px; font-family:inherit; outline:none; resize:vertical;"></textarea></div>
+      <button class="save-btn" id="saveEdit">Сохранить</button>
+    </div>
+  </div>
+
   <div class="status-tooltip" id="statusTooltip"></div>
 
   <div class="circle-preview" id="circlePreview">
@@ -125,6 +139,6 @@
     <div class="dot"></div><span id="recTime">0:00</span><span class="hint">отпустите для отправки</span>
   </div>
 
-  <script src="app.js?v=10"></script>
+  <script src="app.js?v=11"></script>
 </body>
 </html>

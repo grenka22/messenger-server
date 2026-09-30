@@ -73,6 +73,13 @@ const $ccClose = document.getElementById('ccClose');
 const $ccProgress = document.querySelector('.cc-progress');
 const $ccFill = document.getElementById('ccFill');
 const $ccThumb = document.getElementById('ccThumb');
+const $pinnedBanner = document.getElementById('pinnedBanner');
+const $pinText = document.getElementById('pinText');
+const $pinClose = document.getElementById('pinClose');
+const $editModal = document.getElementById('editModal');
+const $closeEdit = document.getElementById('closeEdit');
+const $editText = document.getElementById('editText');
+const $saveEdit = document.getElementById('saveEdit');
 
 // ==================== СОСТОЯНИЕ ====================
 let ws = null;
@@ -90,11 +97,15 @@ let voiceRecorder = null, voiceChunks = [], voiceStartTime = 0, voiceTimerInterv
 let circleStream = null, circleRecorder = null, circleChunks = [], circleStartTime = 0, circleTimerInterval = null;
 
 const renderedMessages = new Map();
+const messagesById = new Map();
 
 let activeCircleVid = null;
 let activeCircleRing = null;
 let activeCircleCirc = 0;
 let ccHideTimer = null;
+
+let pinnedId = null;
+let editingId = null;
 
 // ==================== КЛЮЧИ ====================
 const myAvatarKey = () => `avatar_${myName}`;
@@ -165,6 +176,8 @@ function connect() {
       else if (msg.type === 'presence') handlePresence(msg);
       else if (msg.type === 'read') handleRead(msg);
       else if (msg.type === 'delete') handleDelete(msg);
+      else if (msg.type === 'edit') handleEdit(msg);
+      else if (msg.type === 'pin') handlePin(msg);
       else { renderMessage(msg); if (msg.sender !== myName && msg.id) markRead([msg.id]); }
     } catch (e) { console.error('Parse error:', e); }
   };
@@ -194,21 +207,17 @@ function sendPresence(extra = {}) {
 function handlePresence(msg) {
   const peer = USERS[myName]?.peer;
   if (msg.user !== peer) return;
-
   if (msg.avatar) {
     localStorage.setItem(peerAvatarKey(peer), msg.avatar);
     updatePeerAvatar();
   }
-
   if (msg.status !== undefined) {
     peerStatusData = msg.status;
     if (msg.status) localStorage.setItem(`peer_status_${peer}`, JSON.stringify(msg.status));
     else localStorage.removeItem(`peer_status_${peer}`);
     updatePeerStatusIcon();
   }
-
   peerIsTyping = !!msg.typing;
-
   if (msg.online) {
     if (peerIsTyping) {
       $peerStatus.textContent = 'печатает…';
@@ -221,7 +230,6 @@ function handlePresence(msg) {
     $peerStatus.textContent = formatLastSeen(msg.last_seen);
     $peerStatus.className = 'peer-status offline';
   }
-
   if (msg.online) sendPresence();
 }
 
@@ -235,7 +243,52 @@ function handleRead(msg) {
 
 function handleDelete(msg) {
   const el = renderedMessages.get(msg.id);
-  if (el) { el.remove(); renderedMessages.delete(msg.id); }
+  if (el) { el.remove(); renderedMessages.delete(msg.id); messagesById.delete(msg.id); }
+  if (pinnedId === msg.id) { pinnedId = null; $pinnedBanner.classList.remove('active'); }
+}
+
+function handleEdit(msg) {
+  const el = renderedMessages.get(msg.id);
+  if (!el) return;
+  const data = messagesById.get(msg.id);
+  if (data) data.text = msg.text;
+  // Находим первый текстовый узел, но не .meta — проще: обновляем через замену первого child без .meta
+  const children = Array.from(el.children);
+  // Ищем, что не .meta и не .edited-mark — обычно это text node или специальный элемент
+  if (data && data.type === 'text') {
+    // Удаляем старый текстовый контент
+    el.childNodes.forEach(n => {
+      if (n.nodeType === 3) n.remove();
+    });
+    // Вставляем новый текст в начало
+    el.insertBefore(document.createTextNode(msg.text), el.firstChild);
+    // Если ещё нет edited-mark — добавим
+    const meta = el.querySelector('.meta');
+    if (meta && !meta.querySelector('.edited-mark')) {
+      const em = document.createElement('span');
+      em.className = 'edited-mark';
+      em.textContent = 'изм.';
+      meta.insertBefore(em, meta.querySelector('.time'));
+    }
+  }
+}
+
+function handlePin(msg) {
+  pinnedId = msg.id;
+  if (!pinnedId) {
+    $pinnedBanner.classList.remove('active');
+    return;
+  }
+  const data = messagesById.get(pinnedId);
+  if (data) {
+    let preview = '';
+    if (data.type === 'text') preview = data.text || '';
+    else if (data.type === 'voice') preview = '🎤 Голосовое';
+    else if (data.type === 'video') preview = '⭕ Кружок';
+    else if (data.type === 'file') preview = '📎 ' + (data.filename || data.text || 'файл');
+    $pinText.textContent = preview;
+    $pinnedBanner.classList.add('active');
+  }
 }
 
 // ==================== ТЕКСТ ====================
@@ -269,13 +322,19 @@ function renderMessage(msg) {
   wrap.className = 'msg ' + (isMine ? 'mine' : 'theirs') + (isCircle ? ' circle-wrapper' : '');
   if (msg.id) wrap.dataset.id = msg.id;
 
-  if (msg.type === 'text') wrap.textContent = msg.text || '';
+  if (msg.type === 'text') wrap.appendChild(document.createTextNode(msg.text || ''));
   else if (msg.type === 'voice') wrap.appendChild(buildVoicePlayer(msg, isMine));
   else if (msg.type === 'video') wrap.appendChild(buildCirclePlayer(msg));
   else if (msg.type === 'file') wrap.appendChild(buildFileAttachment(msg));
 
   const meta = document.createElement('div');
   meta.className = 'meta';
+  if (msg.edited) {
+    const em = document.createElement('span');
+    em.className = 'edited-mark';
+    em.textContent = 'изм.';
+    meta.appendChild(em);
+  }
   const time = document.createElement('span');
   time.className = 'time';
   time.textContent = formatTime(msg.timestamp);
@@ -294,7 +353,7 @@ function renderMessage(msg) {
   wrap.appendChild(meta);
   $messages.appendChild(wrap);
   $messages.scrollTop = $messages.scrollHeight;
-  if (msg.id) renderedMessages.set(msg.id, wrap);
+  if (msg.id) { renderedMessages.set(msg.id, wrap); messagesById.set(msg.id, msg); }
 }
 
 // ==================== ГОЛОСОВОЕ ====================
@@ -311,8 +370,8 @@ function buildVoicePlayer(msg, isMine) {
   const speedBtn = box.querySelector('.speed-btn');
   const closeBtn = box.querySelector('.close-btn-voice');
   const ctx = canvas.getContext('2d');
-  const cMain = isMine ? 'rgba(255,255,255,0.85)' : 'rgba(74,144,226,0.7)';
-  const cBg = isMine ? 'rgba(255,255,255,0.35)' : 'rgba(74,144,226,0.25)';
+  const cMain = isMine ? 'rgba(255,255,255,0.9)' : 'rgba(74,144,226,0.7)';
+  const cBg = isMine ? 'rgba(255,255,255,0.4)' : 'rgba(74,144,226,0.25)';
   drawWaveform(ctx, canvas.width, canvas.height, null, cBg);
 
   let peaks = null;
@@ -331,8 +390,8 @@ function buildVoicePlayer(msg, isMine) {
   });
 
   btn.addEventListener('click', () => {
-    if (audio.paused) { audio.play().catch(() => {}); btn.textContent = '⏸'; }
-    else { audio.pause(); btn.textContent = '▶'; }
+    if (audio.paused) { audio.play().catch(() => {}); btn.textContent = '⏸'; btn.classList.add('playing'); }
+    else { audio.pause(); btn.textContent = '▶'; btn.classList.remove('playing'); }
   });
 
   speedBtn.addEventListener('click', () => {
@@ -344,6 +403,7 @@ function buildVoicePlayer(msg, isMine) {
     audio.pause();
     audio.currentTime = 0;
     btn.textContent = '▶';
+    btn.classList.remove('playing');
     speedBtn.textContent = '1×';
     audio.playbackRate = 1;
     if (peaks) drawWaveform(ctx, canvas.width, canvas.height, peaks, cMain, peaks, 0);
@@ -352,6 +412,7 @@ function buildVoicePlayer(msg, isMine) {
 
   audio.addEventListener('ended', () => {
     btn.textContent = '▶';
+    btn.classList.remove('playing');
     if (peaks) drawWaveform(ctx, canvas.width, canvas.height, peaks, cMain, peaks, 0);
   });
   audio.addEventListener('timeupdate', () => {
@@ -394,13 +455,11 @@ $ccPlay.addEventListener('click', () => {
   if (activeCircleVid.paused) { activeCircleVid.muted = false; activeCircleVid.play().catch(() => {}); }
   else { activeCircleVid.pause(); }
 });
-
 $ccSpeed.addEventListener('click', () => {
   if (!activeCircleVid) return;
   if (activeCircleVid.playbackRate === 1) { activeCircleVid.playbackRate = 2; $ccSpeed.textContent = '2×'; }
   else { activeCircleVid.playbackRate = 1; $ccSpeed.textContent = '1×'; }
 });
-
 $ccClose.addEventListener('click', () => {
   if (!activeCircleVid) return;
   activeCircleVid.pause();
@@ -414,7 +473,6 @@ $ccClose.addEventListener('click', () => {
   activeCircleVid = null;
   activeCircleRing = null;
 });
-
 $ccProgress.addEventListener('click', (e) => {
   if (!activeCircleVid || !activeCircleVid.duration || !isFinite(activeCircleVid.duration)) return;
   const r = $ccProgress.getBoundingClientRect();
@@ -422,7 +480,6 @@ $ccProgress.addEventListener('click', (e) => {
   const t = ratio * activeCircleVid.duration;
   if (isFinite(t)) { try { activeCircleVid.currentTime = t; } catch (er) {} }
 });
-
 let ccDragging = false;
 $ccProgress.addEventListener('pointerdown', (e) => { ccDragging = true; try { $ccProgress.setPointerCapture(e.pointerId); } catch (er) {} });
 $ccProgress.addEventListener('pointermove', (e) => {
@@ -476,15 +533,8 @@ function buildCirclePlayer(msg) {
       vid.muted = false;
       const p = vid.play();
       if (p && p.catch) p.catch((err) => console.warn('play error:', err));
-    } else {
-      vid.pause();
-    }
+    } else vid.pause();
   }
-
-  vid.addEventListener('click', (e) => {
-    e.stopPropagation();
-    togglePlay();
-  });
 
   vid.addEventListener('play', () => {
     overlay.classList.remove('visible');
@@ -523,7 +573,6 @@ function buildCirclePlayer(msg) {
     }
   }
 
-  // ==== Универсальные pointer-события на всём боксе ====
   box.addEventListener('pointerdown', (e) => {
     pointerDown = true;
     pointerMoved = false;
@@ -531,7 +580,6 @@ function buildCirclePlayer(msg) {
     startY = e.clientY;
     try { box.setPointerCapture(e.pointerId); } catch (er) {}
   });
-
   box.addEventListener('pointermove', (e) => {
     if (!pointerDown) return;
     const dx = Math.abs(e.clientX - startX);
@@ -539,22 +587,13 @@ function buildCirclePlayer(msg) {
     if (!pointerMoved && (dx > 6 || dy > 6)) pointerMoved = true;
     if (pointerMoved) seekFromPoint(e.clientX, e.clientY);
   });
-
   box.addEventListener('pointerup', (e) => {
     if (!pointerDown) return;
     pointerDown = false;
     try { box.releasePointerCapture(e.pointerId); } catch (er) {}
-
-    // Если движение было маленькое — это клик, значит play/pause
-    if (!pointerMoved) {
-      togglePlay();
-    }
+    if (!pointerMoved) togglePlay();
   });
-
-  box.addEventListener('pointercancel', () => {
-    pointerDown = false;
-    pointerMoved = false;
-  });
+  box.addEventListener('pointercancel', () => { pointerDown = false; pointerMoved = false; });
 
   vid.addEventListener('timeupdate', () => {
     if (!duration) return;
@@ -565,8 +604,6 @@ function buildCirclePlayer(msg) {
 
   return box;
 }
-
-  
 
 // ==================== ФАЙЛЫ ====================
 function buildFileAttachment(msg) {
@@ -727,14 +764,43 @@ function stopCircleRecording() {
   clearInterval(circleTimerInterval);
 }
 
-// ==================== МЕНЮ ====================
+// ==================== МЕНЮ СООБЩЕНИЯ ====================
 function showMessageMenu(msg, wrap) {
   document.querySelectorAll('.msg-popup').forEach(p => p.remove());
   const popup = document.createElement('div');
   popup.className = 'msg-popup';
-  popup.innerHTML = `<button data-action="delete-me">Удалить у себя</button><button data-action="delete-all">Удалить у обоих</button>`;
-  popup.querySelector('[data-action="delete-me"]').onclick = () => { ws.send(JSON.stringify({ type: 'delete', id: msg.id, forAll: false, by: myName })); popup.remove(); };
-  popup.querySelector('[data-action="delete-all"]').onclick = () => { ws.send(JSON.stringify({ type: 'delete', id: msg.id, forAll: true, by: myName })); popup.remove(); };
+  const isMine = msg.sender === myName;
+  const isPinned = pinnedId === msg.id;
+
+  popup.innerHTML = `
+    ${isMine && msg.type === 'text' ? '<button data-action="edit">Редактировать</button>' : ''}
+    <button data-action="pin">${isPinned ? 'Открепить' : 'Закрепить'}</button>
+    <button data-action="delete-me">Удалить у себя</button>
+    <button data-action="delete-all">Удалить у обоих</button>
+  `;
+
+  const editBtn = popup.querySelector('[data-action="edit"]');
+  if (editBtn) editBtn.onclick = () => {
+    popup.remove();
+    editingId = msg.id;
+    $editText.value = msg.text || '';
+    $editModal.classList.add('active');
+    $editText.focus();
+  };
+
+  popup.querySelector('[data-action="pin"]').onclick = () => {
+    ws.send(JSON.stringify({ type: 'pin', id: isPinned ? null : msg.id }));
+    popup.remove();
+  };
+  popup.querySelector('[data-action="delete-me"]').onclick = () => {
+    ws.send(JSON.stringify({ type: 'delete', id: msg.id, forAll: false, by: myName }));
+    popup.remove();
+  };
+  popup.querySelector('[data-action="delete-all"]').onclick = () => {
+    ws.send(JSON.stringify({ type: 'delete', id: msg.id, forAll: true, by: myName }));
+    popup.remove();
+  };
+
   document.body.appendChild(popup);
   const r = wrap.getBoundingClientRect();
   popup.style.cssText = `position:fixed; top:${r.bottom+5}px; left:${Math.max(10,r.left)}px; z-index:300;`;
@@ -744,6 +810,32 @@ function showMessageMenu(msg, wrap) {
     });
   }, 10);
 }
+
+// ==================== РЕДАКТИРОВАНИЕ ====================
+$closeEdit.addEventListener('click', () => { $editModal.classList.remove('active'); editingId = null; });
+$editModal.addEventListener('click', (e) => { if (e.target === $editModal) { $editModal.classList.remove('active'); editingId = null; } });
+$saveEdit.addEventListener('click', () => {
+  const text = $editText.value.trim();
+  if (!text || !editingId) return;
+  ws.send(JSON.stringify({ type: 'edit', id: editingId, text }));
+  $editModal.classList.remove('active');
+  editingId = null;
+});
+
+// ==================== ЗАКРЕПЛЕНИЕ — КЛИК ====================
+$pinnedBanner.addEventListener('click', (e) => {
+  if (e.target === $pinClose) return;
+  if (!pinnedId) return;
+  const el = renderedMessages.get(pinnedId);
+  if (!el) return;
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  el.classList.add('pin-highlight');
+  setTimeout(() => el.classList.remove('pin-highlight'), 1600);
+});
+$pinClose.addEventListener('click', (e) => {
+  e.stopPropagation();
+  ws.send(JSON.stringify({ type: 'pin', id: null }));
+});
 
 // ==================== ВОЛНА ====================
 function extractPeaks(ab, count) {

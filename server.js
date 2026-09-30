@@ -4,7 +4,7 @@ const http = require('http');
 const WebSocket = require('ws');
 const path = require('path');
 const { S3Client, PutObjectCommand, GetObjectCommand } = require('@aws-sdk/client-s3');
-const { initDB, saveMessage, getHistory, markRead, deleteMessage } = require('./db');
+const { initDB, saveMessage, getHistory, markRead, deleteMessage, updateMessageText } = require('./db');
 
 const app = express();
 const server = http.createServer(app);
@@ -22,6 +22,7 @@ const s3 = new S3Client({
 
 const BUCKET = process.env.B2_BUCKET;
 const userStates = {};
+let pinnedMessageId = null;
 
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -76,6 +77,7 @@ wss.on('connection', async (ws) => {
   try {
     const history = await getHistory(200);
     ws.send(JSON.stringify({ type: 'history', messages: history }));
+    ws.send(JSON.stringify({ type: 'pin', id: pinnedMessageId }));
   } catch (e) { console.error('History error:', e); }
 
   for (const name in userStates) {
@@ -122,7 +124,26 @@ wss.on('connection', async (ws) => {
 
       if (msg.type === 'delete') {
         await deleteMessage(msg.id, msg.forAll);
+        if (pinnedMessageId === msg.id && msg.forAll) {
+          pinnedMessageId = null;
+          const pinPayload = JSON.stringify({ type: 'pin', id: null });
+          for (const c of wss.clients) if (c.readyState === WebSocket.OPEN) c.send(pinPayload);
+        }
         const payload = JSON.stringify(msg);
+        for (const c of wss.clients) if (c.readyState === WebSocket.OPEN) c.send(payload);
+        return;
+      }
+
+      if (msg.type === 'edit') {
+        await updateMessageText(msg.id, msg.text);
+        const payload = JSON.stringify({ type: 'edit', id: msg.id, text: msg.text });
+        for (const c of wss.clients) if (c.readyState === WebSocket.OPEN) c.send(payload);
+        return;
+      }
+
+      if (msg.type === 'pin') {
+        pinnedMessageId = msg.id;
+        const payload = JSON.stringify({ type: 'pin', id: pinnedMessageId });
         for (const c of wss.clients) if (c.readyState === WebSocket.OPEN) c.send(payload);
         return;
       }
@@ -137,7 +158,7 @@ wss.on('connection', async (ws) => {
           text: msg.text || null,
           filename: msg.filename || null,
           mediaKey: msg.mediaKey, mime: msg.mime, duration: msg.duration,
-          timestamp: saved.created_at, read_at: null,
+          timestamp: saved.created_at, read_at: null, edited: false,
         };
         const payload = JSON.stringify(outgoing);
         for (const c of wss.clients) if (c.readyState === WebSocket.OPEN) c.send(payload);
