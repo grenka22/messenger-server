@@ -455,7 +455,9 @@ function buildCirclePlayer(msg) {
   const ring = box.querySelector('.circle-ring-progress');
   const overlay = box.querySelector('.circle-play-overlay');
   let duration = 0;
-  let isDragging = false;
+  let pointerDown = false;
+  let pointerMoved = false;
+  let startX = 0, startY = 0;
 
   vid.addEventListener('loadedmetadata', () => {
     if (isFinite(vid.duration) && vid.duration > 0) {
@@ -468,11 +470,20 @@ function buildCirclePlayer(msg) {
     if (isFinite(vid.duration) && vid.duration > 0) duration = vid.duration;
   });
 
+  function togglePlay() {
+    if (!duration) return;
+    if (vid.paused) {
+      vid.muted = false;
+      const p = vid.play();
+      if (p && p.catch) p.catch((err) => console.warn('play error:', err));
+    } else {
+      vid.pause();
+    }
+  }
+
   vid.addEventListener('click', (e) => {
     e.stopPropagation();
-    if (!duration) return;
-    if (vid.paused) { vid.muted = false; vid.play().catch(() => {}); }
-    else { vid.pause(); }
+    togglePlay();
   });
 
   vid.addEventListener('play', () => {
@@ -512,20 +523,37 @@ function buildCirclePlayer(msg) {
     }
   }
 
-  box.addEventListener('click', (e) => {
-    if (e.target === vid || e.target.classList.contains('circle-ring') || e.target.classList.contains('circle-ring-progress')) {
-      seekFromPoint(e.clientX, e.clientY);
-    }
-  });
+  // ==== Универсальные pointer-события на всём боксе ====
   box.addEventListener('pointerdown', (e) => {
-    if (e.target === vid || e.target.classList.contains('circle-ring') || e.target.classList.contains('circle-ring-progress')) {
-      isDragging = true;
-      try { box.setPointerCapture(e.pointerId); } catch (er) {}
+    pointerDown = true;
+    pointerMoved = false;
+    startX = e.clientX;
+    startY = e.clientY;
+    try { box.setPointerCapture(e.pointerId); } catch (er) {}
+  });
+
+  box.addEventListener('pointermove', (e) => {
+    if (!pointerDown) return;
+    const dx = Math.abs(e.clientX - startX);
+    const dy = Math.abs(e.clientY - startY);
+    if (!pointerMoved && (dx > 6 || dy > 6)) pointerMoved = true;
+    if (pointerMoved) seekFromPoint(e.clientX, e.clientY);
+  });
+
+  box.addEventListener('pointerup', (e) => {
+    if (!pointerDown) return;
+    pointerDown = false;
+    try { box.releasePointerCapture(e.pointerId); } catch (er) {}
+
+    // Если движение было маленькое — это клик, значит play/pause
+    if (!pointerMoved) {
+      togglePlay();
     }
   });
-  box.addEventListener('pointermove', (e) => { if (isDragging) seekFromPoint(e.clientX, e.clientY); });
-  box.addEventListener('pointerup', (e) => {
-    if (isDragging) { isDragging = false; try { box.releasePointerCapture(e.pointerId); } catch (er) {} }
+
+  box.addEventListener('pointercancel', () => {
+    pointerDown = false;
+    pointerMoved = false;
   });
 
   vid.addEventListener('timeupdate', () => {
@@ -537,6 +565,8 @@ function buildCirclePlayer(msg) {
 
   return box;
 }
+
+  
 
 // ==================== ФАЙЛЫ ====================
 function buildFileAttachment(msg) {
